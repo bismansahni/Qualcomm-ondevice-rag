@@ -480,6 +480,11 @@ private fun AssistantMessageBubble(
 ) {
     val context = LocalContext.current
     
+    // Log UI updates
+    LaunchedEffect(response) {
+        android.util.Log.d("ChatScreen", "AssistantMessageBubble recomposed with response length: ${response.length}")
+    }
+    
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.Start
@@ -507,7 +512,7 @@ private fun AssistantMessageBubble(
             Column(
                 modifier = Modifier.padding(Dimensions.messageBubblePadding)
             ) {
-                if (isGenerating) {
+                if (response.isEmpty() && isGenerating) {
                     TypingIndicator()
                 } else if (response.isNotEmpty()) {
                     MarkdownText(

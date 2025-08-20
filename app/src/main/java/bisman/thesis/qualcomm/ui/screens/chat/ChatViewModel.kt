@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import android.util.Log
 
 class ChatViewModel(
@@ -114,18 +115,23 @@ class ChatViewModel(
                 initializeGenie()
                 if (genieWrapper != null) {
                     Log.d(TAG, "GenieWrapper is ready, sending prompt...")
-                    val fullResponse = StringBuilder()
                     Log.d(TAG, "Prompt text length: ${promptText.length}")
                     
                     genieWrapper!!.getResponseForPrompt(
                         promptText,
                         object : StringCallback {
                             override fun onNewString(str: String?) {
-                                str?.let {
-                                    Log.d(TAG, "Received token: ${it.length} chars")
-                                    fullResponse.append(it)
+                                str?.let { token ->
+                                    Log.d(TAG, "Received token: '${token}' (${token.length} chars)")
+                                    // Update on Main thread for immediate UI update
+                                    CoroutineScope(Dispatchers.Main).launch {
+                                        val currentResponse = _responseState.value
+                                        val newResponse = currentResponse + token
+                                        Log.d(TAG, "Updating response from ${currentResponse.length} to ${newResponse.length} chars")
+                                        _responseState.value = newResponse
+                                        Log.d(TAG, "Response state updated, current text: '${newResponse.takeLast(50)}'")
+                                    }
                                 }
-                                _responseState.value = fullResponse.toString()
                             }
                         }
                     )
