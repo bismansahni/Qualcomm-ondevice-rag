@@ -31,4 +31,22 @@ class DocumentsDB {
             .flowOn(Dispatchers.IO)
 
     fun getDocsCount(): Long = docsBox.count()
+    
+    fun getDocumentByFilePath(filePath: String): Document? {
+        return docsBox
+            .query(Document_.docFilePath.equal(filePath))
+            .build()
+            .findFirst()
+    }
+    
+    fun removeDocumentByFilePath(filePath: String): Boolean {
+        val document = getDocumentByFilePath(filePath)
+        return if (document != null) {
+            docsBox.remove(document.docId)
+            android.util.Log.d("DocumentsDB", "Removed document: ${document.docFileName} with path: $filePath")
+            true
+        } else {
+            false
+        }
+    }
 }

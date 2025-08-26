@@ -38,6 +38,7 @@ class DocsViewModel(
         inputStream: InputStream,
         fileName: String,
         documentType: Readers.DocumentType,
+        filePath: String = ""
     ) = withContext(Dispatchers.IO) {
         Log.d("DocsViewModel", "Adding document: $fileName")
         val text =
@@ -50,6 +51,7 @@ class DocsViewModel(
                     docText = text,
                     docFileName = fileName,
                     docAddedTime = System.currentTimeMillis(),
+                    docFilePath = filePath
                 ),
             )
         Log.d("DocsViewModel", "Added document to DB with ID: $newDocId")
@@ -122,6 +124,14 @@ class DocsViewModel(
     fun removeDocument(docId: Long) {
         documentsDB.removeDocument(docId)
         chunksDB.removeChunks(docId)
+    }
+    
+    fun removeDocumentByFilePath(filePath: String) {
+        val document = documentsDB.getDocumentByFilePath(filePath)
+        if (document != null) {
+            removeDocument(document.docId)
+            Log.d("DocsViewModel", "Removed document from DB: ${document.docFileName}")
+        }
     }
 
     fun getDocsCount(): Long = documentsDB.getDocsCount()

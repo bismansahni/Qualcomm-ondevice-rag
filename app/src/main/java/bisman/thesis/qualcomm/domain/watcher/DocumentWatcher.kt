@@ -104,15 +104,23 @@ class DocumentWatcher(
             }
         }
 
-        fileObserver = object : FileObserver(watchedFolder.absolutePath, CREATE or MOVED_TO) {
+        fileObserver = object : FileObserver(watchedFolder.absolutePath, CREATE or MOVED_TO or DELETE) {
             override fun onEvent(event: Int, path: String?) {
                 path?.let {
                     val file = File(watchedFolder, it)
                     Log.d(TAG, "File event detected: $it, event type: $event")
 
-                    if (isValidDocument(file) && !processedFiles.contains(file.absolutePath)) {
-                        Log.d(TAG, "Processing new document: ${file.name}")
-                        processDocument(file)
+                    when (event) {
+                        CREATE, MOVED_TO -> {
+                            if (isValidDocument(file) && !processedFiles.contains(file.absolutePath)) {
+                                Log.d(TAG, "Processing new document: ${file.name}")
+                                processDocument(file)
+                            }
+                        }
+                        DELETE -> {
+                            Log.d(TAG, "File deleted: ${file.name}")
+                            handleFileDeleted(file)
+                        }
                     }
                 }
             }
@@ -156,7 +164,8 @@ class DocumentWatcher(
                         docsViewModel.addDocument(
                             inputStream,
                             file.name,
-                            documentType
+                            documentType,
+                            file.absolutePath
                         )
                     }
 
@@ -176,5 +185,25 @@ class DocumentWatcher(
 
     fun clearProcessedFiles() {
         processedFiles.clear()
+    }
+    
+    private fun handleFileDeleted(file: File) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                _processingStatus.value = ProcessingStatus.Processing("Removing ${file.name}")
+                
+                // Remove from processed files set
+                processedFiles.remove(file.absolutePath)
+                
+                // Remove from database
+                docsViewModel.removeDocumentByFilePath(file.absolutePath)
+                
+                _processingStatus.value = ProcessingStatus.Success("Removed ${file.name}")
+                Log.d(TAG, "Successfully removed document: ${file.name}")
+            } catch (e: Exception) {
+                _processingStatus.value = ProcessingStatus.Error(file.name, "Failed to remove: ${e.message}")
+                Log.e(TAG, "Error removing document: ${file.name}", e)
+            }
+        }
     }
 }

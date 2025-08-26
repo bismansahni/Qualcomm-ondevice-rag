@@ -20,6 +20,7 @@ data class Document(
     var docText: String = "",
     var docFileName: String = "",
     var docAddedTime: Long = 0,
+    var docFilePath: String = "",
 )
 
 data class RetrievedContext(
