@@ -108,3 +108,7 @@ app/src/main/assets/htp_config/
 .temp/
 .tmp/
 
+claude/
+.claude
+.claude/
+

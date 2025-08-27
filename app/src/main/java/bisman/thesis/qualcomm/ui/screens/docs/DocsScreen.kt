@@ -327,9 +327,10 @@ private fun FloatingFolderButton() {
             path?.let { folderPath ->
                 try {
                     docsViewModel.documentWatcher.setWatchedFolderPath(folderPath)
-                    docsViewModel.documentWatcher.startWatching()
+                    // Start the sync service with the new folder
+                    docsViewModel.startSyncService(context)
                 } catch (e: Exception) {
-                    Log.e("FloatingFolderButton", "Error setting up document watcher", e)
+                    Log.e("FloatingFolderButton", "Error setting up document sync", e)
                 }
             }
         }
@@ -395,9 +396,13 @@ private fun GlassmorphicFolderWatcherCard(docsViewModel: DocsViewModel) {
         try {
             docsViewModel.initDocumentWatcher(context)
             isInitialized = true
-            // Auto-start watching if a folder was previously selected
-            if (docsViewModel.documentWatcher.watchedFolderPath.value != null) {
-                docsViewModel.documentWatcher.startWatching()
+            // Start the sync service instead of just FileObserver
+            val watchedPath = docsViewModel.documentWatcher.watchedFolderPath.value
+            if (watchedPath != null) {
+                // Check if service is already running
+                if (!docsViewModel.isSyncServiceRunning(context)) {
+                    docsViewModel.startSyncService(context)
+                }
             }
         } catch (e: Exception) {
             Log.e("GlassmorphicFolderWatcherCard", "Failed to initialize document watcher", e)
@@ -769,7 +774,6 @@ private fun DocsList(
                         }
                     ),
                     index = index,
-                    onRemoveClick = { docId -> docsViewModel.removeDocument(docId) },
                     onCardClick = {
                         dialogDoc.value = doc
                         showDocDetailDialog.value = true
@@ -785,7 +789,6 @@ private fun DocsList(
 private fun AnimatedDocumentCard(
     document: Document,
     index: Int,
-    onRemoveClick: (Long) -> Unit,
     onCardClick: () -> Unit
 ) {
     var isPressed by remember { mutableStateOf(false) }
@@ -911,52 +914,22 @@ private fun AnimatedDocumentCard(
                             }
                         }
 
-                        // Action buttons
-                        Row {
-                            IconButton(
-                                onClick = onCardClick,
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .background(
-                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
-                                        CircleShape
-                                    )
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Visibility,
-                                    contentDescription = "View document",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
+                        // View button only
+                        IconButton(
+                            onClick = onCardClick,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(
+                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                                    CircleShape
                                 )
-                            }
-
-                            Spacer(modifier = Modifier.width(8.dp))
-
-                            IconButton(
-                                onClick = {
-                                    createAlertDialog(
-                                        dialogTitle = "Remove Document",
-                                        dialogText = "Are you sure you want to remove this document? This action cannot be undone.",
-                                        dialogPositiveButtonText = "Remove",
-                                        onPositiveButtonClick = { onRemoveClick(document.docId) },
-                                        dialogNegativeButtonText = "Cancel",
-                                        onNegativeButtonClick = {}
-                                    )
-                                },
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .background(
-                                        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
-                                        CircleShape
-                                    )
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = "Remove document",
-                                    tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Visibility,
+                                contentDescription = "View document",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     }
 

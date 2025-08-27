@@ -9,6 +9,7 @@ import android.os.Environment
 import android.os.FileObserver
 import android.util.Log
 import bisman.thesis.qualcomm.data.ChunksDB
+import bisman.thesis.qualcomm.data.Document
 import bisman.thesis.qualcomm.data.DocumentsDB
 import bisman.thesis.qualcomm.domain.embeddings.SentenceEmbeddingProvider
 import bisman.thesis.qualcomm.domain.readers.Readers
@@ -41,7 +42,6 @@ class DocumentWatcher(
     private val _processingStatus = MutableStateFlow<ProcessingStatus>(ProcessingStatus.Idle)
     val processingStatus: StateFlow<ProcessingStatus> = _processingStatus
 
-    private val processedFiles = mutableSetOf<String>()
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val _watchedFolderPath = MutableStateFlow<String?>(loadWatchedFolderPath())
@@ -73,8 +73,7 @@ class DocumentWatcher(
         prefs.edit().putString(PREF_WATCHED_FOLDER, path).apply()
         _watchedFolderPath.value = path
 
-        // Clear processed files for the new folder
-        processedFiles.clear()
+        // No need to clear anything as we use database as source of truth
 
         Log.d(TAG, "Watched folder path updated to: $path")
     }
@@ -97,11 +96,9 @@ class DocumentWatcher(
             return
         }
 
-        // Process existing files in the folder first
-        watchedFolder.listFiles()?.forEach { file ->
-            if (isValidDocument(file) && !processedFiles.contains(file.absolutePath)) {
-                processDocument(file)
-            }
+        // Sync existing files with database on startup
+        CoroutineScope(Dispatchers.IO).launch {
+            syncFolderWithDatabase(watchedFolder)
         }
 
         fileObserver = object : FileObserver(watchedFolder.absolutePath, CREATE or MOVED_TO or DELETE) {
@@ -112,9 +109,15 @@ class DocumentWatcher(
 
                     when (event) {
                         CREATE, MOVED_TO -> {
-                            if (isValidDocument(file) && !processedFiles.contains(file.absolutePath)) {
-                                Log.d(TAG, "Processing new document: ${file.name}")
-                                processDocument(file)
+                            if (isValidDocument(file)) {
+                                // Check database instead of memory set
+                                CoroutineScope(Dispatchers.IO).launch {
+                                    val exists = docsViewModel.documentsDB.documentExistsWithPath(file.absolutePath)
+                                    if (!exists) {
+                                        Log.d(TAG, "Processing new document: ${file.name}")
+                                        processDocument(file)
+                                    }
+                                }
                             }
                         }
                         DELETE -> {
@@ -135,7 +138,6 @@ class DocumentWatcher(
         fileObserver?.stopWatching()
         fileObserver = null
         _isWatching.value = false
-        processedFiles.clear()
         Log.d(TAG, "Stopped watching folder")
     }
 
@@ -165,11 +167,12 @@ class DocumentWatcher(
                             inputStream,
                             file.name,
                             documentType,
-                            file.absolutePath
+                            file.absolutePath,
+                            file.lastModified(),
+                            file.length()
                         )
                     }
 
-                    processedFiles.add(file.absolutePath)
                     _processingStatus.value = ProcessingStatus.Success(file.name)
                     Log.d(TAG, "Successfully processed and added document: ${file.name}")
                 } else {
@@ -183,17 +186,50 @@ class DocumentWatcher(
         }
     }
 
-    fun clearProcessedFiles() {
-        processedFiles.clear()
+    private suspend fun syncFolderWithDatabase(folder: File) {
+        Log.d(TAG, "Starting folder sync for: ${folder.absolutePath}")
+        
+        // Get all valid files in folder
+        val folderFiles = folder.listFiles()
+            ?.filter { isValidDocument(it) }
+            ?.associateBy { it.absolutePath }
+            ?: emptyMap()
+        
+        // Get all documents from database
+        val dbDocuments = docsViewModel.documentsDB.getAllDocumentsMap()
+        
+        // Process new files not in database
+        folderFiles.forEach { (path, file) ->
+            if (!dbDocuments.containsKey(path)) {
+                Log.d(TAG, "New file found during sync: ${file.name}")
+                processDocument(file)
+            } else {
+                // Check if file was modified
+                val dbDoc = dbDocuments[path]
+                if (dbDoc != null && file.lastModified() > dbDoc.fileLastModified) {
+                    Log.d(TAG, "Modified file found during sync: ${file.name}")
+                    // Re-process the document
+                    handleFileDeleted(file) // Remove old version
+                    processDocument(file) // Add new version
+                }
+            }
+        }
+        
+        // Remove documents for files that no longer exist
+        dbDocuments.forEach { (path, doc) ->
+            if (!folderFiles.containsKey(path)) {
+                Log.d(TAG, "File no longer exists: ${doc.docFileName}")
+                docsViewModel.removeDocument(doc.docId)
+            }
+        }
+        
+        Log.d(TAG, "Folder sync completed")
     }
     
     private fun handleFileDeleted(file: File) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 _processingStatus.value = ProcessingStatus.Processing("Removing ${file.name}")
-                
-                // Remove from processed files set
-                processedFiles.remove(file.absolutePath)
                 
                 // Remove from database
                 docsViewModel.removeDocumentByFilePath(file.absolutePath)

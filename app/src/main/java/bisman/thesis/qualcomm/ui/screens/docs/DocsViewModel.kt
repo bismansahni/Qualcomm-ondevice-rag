@@ -12,6 +12,8 @@ import bisman.thesis.qualcomm.domain.splitters.WhiteSpaceSplitter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import android.os.Build
+import bisman.thesis.qualcomm.services.DocumentSyncService
 import org.koin.android.annotation.KoinViewModel
 import android.util.Log
 import java.io.File
@@ -24,7 +26,7 @@ import bisman.thesis.qualcomm.domain.watcher.DocumentWatcher
 
 @KoinViewModel
 class DocsViewModel(
-    private val documentsDB: DocumentsDB,
+    val documentsDB: DocumentsDB,
     private val chunksDB: ChunksDB,
     private val sentenceEncoder: SentenceEmbeddingProvider,
 ) : ViewModel() {
@@ -34,11 +36,52 @@ class DocsViewModel(
     fun initDocumentWatcher(context: Context) {
         documentWatcher = DocumentWatcher(context, this)
     }
+    
+    fun startSyncService(context: Context) {
+        val watchedPath = documentWatcher.watchedFolderPath.value
+        if (!watchedPath.isNullOrEmpty()) {
+            try {
+                val intent = android.content.Intent(context, DocumentSyncService::class.java).apply {
+                    putExtra("folder_path", watchedPath)
+                }
+                
+                // Save service enabled preference
+                val prefs = context.getSharedPreferences("DocQAPrefs", Context.MODE_PRIVATE)
+                prefs.edit().putBoolean("sync_service_enabled", true).apply()
+                
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+                Log.d("DocsViewModel", "Started document sync service")
+            } catch (e: Exception) {
+                Log.e("DocsViewModel", "Failed to start sync service", e)
+            }
+        }
+    }
+    
+    fun stopSyncService(context: Context) {
+        val intent = android.content.Intent(context, DocumentSyncService::class.java)
+        context.stopService(intent)
+        
+        // Save service disabled preference
+        val prefs = context.getSharedPreferences("DocQAPrefs", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("sync_service_enabled", false).apply()
+        
+        Log.d("DocsViewModel", "Stopped document sync service")
+    }
+    
+    fun isSyncServiceRunning(context: Context): Boolean {
+        return DocumentSyncService.isRunning(context)
+    }
     suspend fun addDocument(
         inputStream: InputStream,
         fileName: String,
         documentType: Readers.DocumentType,
-        filePath: String = ""
+        filePath: String = "",
+        fileLastModified: Long = 0,
+        fileSize: Long = 0
     ) = withContext(Dispatchers.IO) {
         Log.d("DocsViewModel", "Adding document: $fileName")
         val text =
@@ -51,7 +94,9 @@ class DocsViewModel(
                     docText = text,
                     docFileName = fileName,
                     docAddedTime = System.currentTimeMillis(),
-                    docFilePath = filePath
+                    docFilePath = filePath,
+                    fileLastModified = fileLastModified,
+                    fileSize = fileSize
                 ),
             )
         Log.d("DocsViewModel", "Added document to DB with ID: $newDocId")

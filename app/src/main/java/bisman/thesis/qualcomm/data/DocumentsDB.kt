@@ -49,4 +49,30 @@ class DocumentsDB {
             false
         }
     }
+    
+    fun getAllDocumentFilePaths(): List<String> {
+        return docsBox.all.mapNotNull { doc ->
+            doc.docFilePath.takeIf { it.isNotEmpty() }
+        }
+    }
+    
+    fun documentExistsWithPath(filePath: String): Boolean {
+        return docsBox
+            .query(Document_.docFilePath.equal(filePath))
+            .build()
+            .count() > 0
+    }
+    
+    fun getAllDocumentsMap(): Map<String, Document> {
+        return docsBox.all.associateBy { it.docFilePath }.filterKeys { it.isNotEmpty() }
+    }
+    
+    fun updateDocumentMetadata(docId: Long, lastModified: Long, fileSize: Long) {
+        val doc = docsBox.get(docId)
+        doc?.let {
+            it.fileLastModified = lastModified
+            it.fileSize = fileSize
+            docsBox.put(it)
+        }
+    }
 }

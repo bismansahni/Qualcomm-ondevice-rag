@@ -21,6 +21,8 @@ data class Document(
     var docFileName: String = "",
     var docAddedTime: Long = 0,
     var docFilePath: String = "",
+    var fileLastModified: Long = 0,
+    var fileSize: Long = 0,
 )
 
 data class RetrievedContext(

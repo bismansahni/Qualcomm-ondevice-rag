@@ -11,6 +11,16 @@
     <!-- For Android 11+ folder watching with FileObserver -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
+    
+    <!-- For Foreground Service -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    
+    <!-- For posting notifications (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    
+    <!-- For starting service on boot -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:name=".ChatApplication"
@@ -32,6 +42,7 @@
             </intent-filter>
         </activity>
 
+
         <activity
             android:name="bisman.thesis.qualcomm.MainComposeActivity"
             android:theme="@style/Theme.ChatApp" />
@@ -47,5 +58,31 @@
         <uses-native-library
             android:name="libcdsprpc.so"
             android:required="false" />
+        
+        <!-- Document Sync Service -->
+        <service
+            android:name=".services.DocumentSyncService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+        
+        <!-- Document Observer Service -->
+        <service
+            android:name=".services.DocumentObserverService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+        
+        <!-- Boot Receiver -->
+        <receiver
+            android:name=".services.BootReceiver"
+            android:enabled="true"
+            android:exported="true"
+            android:directBootAware="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>
