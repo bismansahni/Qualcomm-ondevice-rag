@@ -94,7 +94,9 @@ app/src/main/assets/models/*.bin
 app/src/main/assets/models/*.onnx
 app/src/main/assets/htp_config/
 
+app/src/main/assets/models/*.tflite
 # Large model files
+*.tflite
 *.bin
 *.onnx
 *.pt
