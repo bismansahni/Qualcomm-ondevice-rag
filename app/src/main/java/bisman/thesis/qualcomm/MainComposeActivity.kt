@@ -33,6 +33,65 @@ class MainComposeActivity : ComponentActivity() {
         var modelDirectory: String? = null
         @JvmField
         var htpConfigPath: String? = null
+        
+        init {
+            try {
+                System.loadLibrary("chatapp")
+                Log.d(TAG, "Native library 'chatapp' loaded successfully")
+            } catch (e: UnsatisfiedLinkError) {
+                Log.e(TAG, "Failed to load native library 'chatapp'", e)
+            } catch (e: Exception) {
+                Log.e(TAG, "Unexpected error loading native library", e)
+            }
+        }
+    }
+    
+    private fun initializeModelPaths() {
+        try {
+            // HTP config is guaranteed to be 8gen3
+            val htpConfigFile = "qualcomm-snapdragon-8-gen3.json"
+            
+            // Set paths to external cache where models are stored
+            val externalDir = externalCacheDir?.absolutePath
+            if (externalDir != null) {
+                modelDirectory = File(externalDir, "models/llm").absolutePath
+                htpConfigPath = File(File(externalDir, "htp_config"), htpConfigFile).absolutePath
+                
+                // Verify the files exist
+                val modelDir = File(modelDirectory!!)
+                val htpConfig = File(htpConfigPath!!)
+                
+                if (!modelDir.exists()) {
+                    Log.e(TAG, "Model directory does not exist: $modelDirectory")
+                    Log.e(TAG, "App may need to be restarted from MainActivity to copy assets")
+                    // Restart app from MainActivity to ensure assets are copied
+                    val intent = android.content.Intent(this, MainActivity::class.java)
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                    startActivity(intent)
+                    finish()
+                    return
+                }
+                
+                if (!htpConfig.exists()) {
+                    Log.e(TAG, "HTP config does not exist: $htpConfigPath")
+                    Log.e(TAG, "App may need to be restarted from MainActivity to copy assets")
+                    // Restart app from MainActivity to ensure assets are copied
+                    val intent = android.content.Intent(this, MainActivity::class.java)
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                    startActivity(intent)
+                    finish()
+                    return
+                }
+                
+                Log.d(TAG, "Model paths initialized successfully")
+                Log.d(TAG, "Model directory: $modelDirectory")
+                Log.d(TAG, "HTP config: $htpConfigPath")
+            } else {
+                Log.e(TAG, "External cache directory is null")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing model paths", e)
+        }
     }
     
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -45,6 +104,11 @@ class MainComposeActivity : ComponentActivity() {
             Os.setenv("LD_LIBRARY_PATH", nativeLibPath, true)
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+        
+        // Ensure model paths are initialized even if app restarts directly to this activity
+        if (modelDirectory == null || htpConfigPath == null) {
+            initializeModelPaths()
         }
         
         // Assets are already copied by MainActivity, just log the paths

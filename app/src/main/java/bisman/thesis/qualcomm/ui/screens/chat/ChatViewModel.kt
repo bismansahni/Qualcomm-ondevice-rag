@@ -44,6 +44,15 @@ class ChatViewModel(
         Log.d(TAG, "===== initializeGenie START =====")
         if (genieWrapper == null) {
             try {
+                // Ensure native library is loaded
+                try {
+                    System.loadLibrary("chatapp")
+                    Log.d(TAG, "Native library loaded successfully before creating GenieWrapper")
+                } catch (e: UnsatisfiedLinkError) {
+                    // Library might already be loaded, which is fine
+                    Log.d(TAG, "Native library already loaded or error: ${e.message}")
+                }
+                
                 val modelDir = MainComposeActivity.modelDirectory
                 val htpConfigPath = MainComposeActivity.htpConfigPath
                 
@@ -56,6 +65,22 @@ class ChatViewModel(
                     return
                 }
                 
+                // Verify files exist before attempting to create GenieWrapper
+                val modelDirFile = java.io.File(modelDir)
+                val htpConfigFile = java.io.File(htpConfigPath)
+                
+                if (!modelDirFile.exists()) {
+                    Log.e(TAG, "Model directory does not exist: $modelDir")
+                    _responseState.value = "Error: Model directory not found. Please restart the app."
+                    return
+                }
+                
+                if (!htpConfigFile.exists()) {
+                    Log.e(TAG, "HTP config file does not exist: $htpConfigPath")
+                    _responseState.value = "Error: HTP config not found. Please restart the app."
+                    return
+                }
+                
                 Log.d(TAG, "Creating GenieWrapper with:")
                 Log.d(TAG, "  modelDir: $modelDir")
                 Log.d(TAG, "  htpConfigPath: $htpConfigPath")
@@ -63,9 +88,24 @@ class ChatViewModel(
                 // Use reflection to create GenieWrapper since constructor is package-private
                 val constructor = GenieWrapper::class.java.getDeclaredConstructor(String::class.java, String::class.java)
                 constructor.isAccessible = true
-                genieWrapper = constructor.newInstance(modelDir, htpConfigPath)
                 
-                Log.d(TAG, "GenieWrapper created successfully")
+                Log.d(TAG, "About to create GenieWrapper instance...")
+                genieWrapper = constructor.newInstance(modelDir, htpConfigPath)
+                Log.d(TAG, "GenieWrapper constructor returned")
+                
+                if (genieWrapper != null) {
+                    Log.d(TAG, "GenieWrapper created successfully, instance: $genieWrapper")
+                } else {
+                    Log.e(TAG, "GenieWrapper is null after creation")
+                    _responseState.value = "Error: Failed to initialize model"
+                }
+            } catch (e: java.lang.reflect.InvocationTargetException) {
+                Log.e(TAG, "InvocationTargetException during model initialization", e)
+                Log.e(TAG, "Cause: ${e.cause?.message}", e.cause)
+                _responseState.value = "Error initializing model: ${e.cause?.message ?: e.message}"
+            } catch (e: UnsatisfiedLinkError) {
+                Log.e(TAG, "Native library not loaded", e)
+                _responseState.value = "Error: Native library not loaded. Please restart the app."
             } catch (e: Exception) {
                 Log.e(TAG, "Error initializing model", e)
                 _responseState.value = "Error initializing model: ${e.message}"

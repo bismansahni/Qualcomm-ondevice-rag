@@ -356,8 +356,12 @@ class DocumentSyncService : Service(), KoinComponent {
                 
                 // Create and store chunks
                 val chunks = WhiteSpaceSplitter.createChunks(text, chunkSize = 500, chunkOverlap = 50)
+                
+                // Reset stats before processing
+                sentenceEncoder.resetStats()
+                
                 chunks.forEach { chunkText ->
-                    val embedding = sentenceEncoder.encodeText(chunkText)
+                    val embedding = sentenceEncoder.encodeText(chunkText, suppressLogs = true)
                     chunksDB.addChunk(
                         Chunk(
                             docId = docId,
@@ -367,6 +371,9 @@ class DocumentSyncService : Service(), KoinComponent {
                         )
                     )
                 }
+                
+                // Print average stats after processing
+                sentenceEncoder.printAverageStats()
                 
                 Log.d(TAG, "Successfully processed document: ${file.name} with ${chunks.size} chunks")
             }
@@ -401,8 +408,12 @@ class DocumentSyncService : Service(), KoinComponent {
                 
                 // Create new chunks
                 val chunks = WhiteSpaceSplitter.createChunks(text, chunkSize = 500, chunkOverlap = 50)
+                
+                // Reset stats before processing
+                sentenceEncoder.resetStats()
+                
                 chunks.forEach { chunkText ->
-                    val embedding = sentenceEncoder.encodeText(chunkText)
+                    val embedding = sentenceEncoder.encodeText(chunkText, suppressLogs = true)
                     chunksDB.addChunk(
                         Chunk(
                             docId = document.docId,
@@ -412,6 +423,9 @@ class DocumentSyncService : Service(), KoinComponent {
                         )
                     )
                 }
+                
+                // Print average stats after processing
+                sentenceEncoder.printAverageStats()
                 
                 Log.d(TAG, "Successfully updated document: ${file.name}")
             }

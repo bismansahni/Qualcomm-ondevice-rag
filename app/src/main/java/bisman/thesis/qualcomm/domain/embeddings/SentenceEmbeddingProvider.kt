@@ -21,6 +21,10 @@ class SentenceEmbeddingProvider(context: Context) {
         
         private fun Double.format(digits: Int) = "%.${digits}f".format(this)
     }
+    
+    // Simple performance tracking
+    private var totalEmbeddingTime = 0L
+    private var totalEmbeddingCount = 0
 
     private val context: Context = context.also {
         Log.d(TAG, "Context received: $it")
@@ -126,107 +130,93 @@ class SentenceEmbeddingProvider(context: Context) {
         }
     }
 
-    fun encodeText(text: String): FloatArray {
+    fun resetStats() {
+        totalEmbeddingTime = 0L
+        totalEmbeddingCount = 0
+    }
+    
+    fun printAverageStats() {
+        if (totalEmbeddingCount > 0) {
+            val avgTime = totalEmbeddingTime.toDouble() / totalEmbeddingCount
+            val throughput = 1000.0 / avgTime
+            Log.d(TAG, "========== EMBEDDING PERFORMANCE SUMMARY ==========")
+            Log.d(TAG, "📊 Total embeddings processed: $totalEmbeddingCount")
+            Log.d(TAG, "📊 Average time per embedding: ${avgTime.format(2)}ms")
+            Log.d(TAG, "📊 Average throughput: ${throughput.format(2)} embeddings/sec")
+            Log.d(TAG, "===================================================")
+        }
+    }
+    
+    fun encodeText(text: String, suppressLogs: Boolean = false): FloatArray {
         try {
             val startTime = System.currentTimeMillis()
-            Log.d(TAG, "========== EMBEDDING INFERENCE START ==========")
-            Log.d(TAG, "Text length: ${text.length} characters")
-            Log.d(TAG, "Text preview: \"${text.take(100)}${if (text.length > 100) "..." else ""}\"")
             
             // Tokenize the text using the proper BERT tokenizer
-            val tokenizationStart = System.currentTimeMillis()
             val tokens = mutableListOf<String>()
             tokens.add(clsToken)
             val tokenizedText = tokenizer.tokenize(text)
             tokens.addAll(tokenizedText)
             tokens.add(sepToken)
-            val tokenizationTime = System.currentTimeMillis() - tokenizationStart
-            Log.d(TAG, "⏱️ Tokenization: ${tokenizationTime}ms (${tokenizedText.size} tokens)")
-        
-        // Truncate if too long (keeping [CLS] and [SEP])
-        if (tokens.size > maxSeqLength) {
-            Log.d(TAG, "Truncating tokens from ${tokens.size} to $maxSeqLength")
-            val truncated = mutableListOf<String>()
-            truncated.addAll(tokens.take(maxSeqLength - 1))
-            truncated.add(sepToken)
-            tokens.clear()
-            tokens.addAll(truncated)
-        }
-        Log.d(TAG, "Final token count: ${tokens.size}")
-        
-        // Convert tokens to IDs
-        val conversionStart = System.currentTimeMillis()
-        val inputIds = tokenizer.convertTokensToIds(tokens)
-        val conversionTime = System.currentTimeMillis() - conversionStart
-        Log.d(TAG, "⏱️ Token->ID conversion: ${conversionTime}ms")
-        
-        // Prepare input tensors
-        val tensorPrepStart = System.currentTimeMillis()
-        
-        // Create attention mask (1 for real tokens, 0 for padding)
-        val attentionMask = IntArray(maxSeqLength) { i ->
-            if (i < inputIds.size) 1 else 0
-        }
-        
-        // Pad input IDs to max length
-        val paddedInputIds = IntArray(maxSeqLength) { i ->
-            if (i < inputIds.size) inputIds[i] else vocabulary[padToken] ?: 0
-        }
-        
-        // Prepare input tensors using ByteBuffer for INT32 support
-        val inputIdsBuffer = ByteBuffer.allocateDirect(maxSeqLength * 4).order(ByteOrder.nativeOrder())
-        paddedInputIds.forEach { inputIdsBuffer.putInt(it) }
-        inputIdsBuffer.rewind()
-        
-        val attentionMaskBuffer = ByteBuffer.allocateDirect(maxSeqLength * 4).order(ByteOrder.nativeOrder())
-        attentionMask.forEach { attentionMaskBuffer.putInt(it) }
-        attentionMaskBuffer.rewind()
-        
-        val tensorPrepTime = System.currentTimeMillis() - tensorPrepStart
-        Log.d(TAG, "⏱️ Tensor preparation: ${tensorPrepTime}ms")
-        
-        // Prepare output tensor - model outputs [128, 384] = 49152 floats
-        // We need to allocate space for all tokens, then extract [CLS] embedding
-        val outputSize = maxSeqLength * embeddingSize * 4 // 128 * 384 * 4 bytes
-        val outputBuffer = ByteBuffer.allocateDirect(outputSize).order(ByteOrder.nativeOrder())
-        
-        // Run inference
-        val inputs = arrayOf(
-            inputIdsBuffer,
-            attentionMaskBuffer
-        )
-        val outputs = mapOf(0 to outputBuffer)
-        
-        val inferenceStart = System.currentTimeMillis()
-        tfliteInterpreter.runForMultipleInputsOutputs(inputs, outputs)
-        val inferenceTime = System.currentTimeMillis() - inferenceStart
-        Log.d(TAG, "⏱️ TFLite Inference: ${inferenceTime}ms")
-        
-        // Return the embedding - extract [CLS] token embedding (first 384 floats)
-        val extractionStart = System.currentTimeMillis()
-        outputBuffer.rewind()
-        val allEmbeddings = FloatArray(maxSeqLength * embeddingSize)
-        outputBuffer.asFloatBuffer().get(allEmbeddings)
-        
-        // Extract just the [CLS] token embedding (first 384 values)
-        val embedding = allEmbeddings.sliceArray(0 until embeddingSize)
-        val extractionTime = System.currentTimeMillis() - extractionStart
-        Log.d(TAG, "⏱️ Output extraction: ${extractionTime}ms")
-        
-        val totalTime = System.currentTimeMillis() - startTime
-        Log.d(TAG, "========== EMBEDDING INFERENCE COMPLETE ==========")
-        Log.d(TAG, "📊 PERFORMANCE SUMMARY:")
-        Log.d(TAG, "   Tokenization:     ${tokenizationTime}ms")
-        Log.d(TAG, "   Token conversion: ${conversionTime}ms")
-        Log.d(TAG, "   Tensor prep:      ${tensorPrepTime}ms")
-        Log.d(TAG, "   Model inference:  ${inferenceTime}ms")
-        Log.d(TAG, "   Output extract:   ${extractionTime}ms")
-        Log.d(TAG, "   ─────────────────────────")
-        Log.d(TAG, "   TOTAL TIME:       ${totalTime}ms")
-        Log.d(TAG, "   Tokens processed: ${tokens.size}")
-        Log.d(TAG, "   Throughput:       ${(1000.0/totalTime).format(2)} embeddings/sec")
-        
-        return embedding
+            
+            // Truncate if too long (keeping [CLS] and [SEP])
+            if (tokens.size > maxSeqLength) {
+                val truncated = mutableListOf<String>()
+                truncated.addAll(tokens.take(maxSeqLength - 1))
+                truncated.add(sepToken)
+                tokens.clear()
+                tokens.addAll(truncated)
+            }
+            
+            // Convert tokens to IDs
+            val inputIds = tokenizer.convertTokensToIds(tokens)
+            
+            // Create attention mask (1 for real tokens, 0 for padding)
+            val attentionMask = IntArray(maxSeqLength) { i ->
+                if (i < inputIds.size) 1 else 0
+            }
+            
+            // Pad input IDs to max length
+            val paddedInputIds = IntArray(maxSeqLength) { i ->
+                if (i < inputIds.size) inputIds[i] else vocabulary[padToken] ?: 0
+            }
+            
+            // Prepare input tensors using ByteBuffer for INT32 support
+            val inputIdsBuffer = ByteBuffer.allocateDirect(maxSeqLength * 4).order(ByteOrder.nativeOrder())
+            paddedInputIds.forEach { inputIdsBuffer.putInt(it) }
+            inputIdsBuffer.rewind()
+            
+            val attentionMaskBuffer = ByteBuffer.allocateDirect(maxSeqLength * 4).order(ByteOrder.nativeOrder())
+            attentionMask.forEach { attentionMaskBuffer.putInt(it) }
+            attentionMaskBuffer.rewind()
+            
+            // Prepare output tensor
+            val outputSize = maxSeqLength * embeddingSize * 4
+            val outputBuffer = ByteBuffer.allocateDirect(outputSize).order(ByteOrder.nativeOrder())
+            
+            // Run inference
+            val inputs = arrayOf(inputIdsBuffer, attentionMaskBuffer)
+            val outputs = mapOf(0 to outputBuffer)
+            
+            tfliteInterpreter.runForMultipleInputsOutputs(inputs, outputs)
+            
+            // Extract [CLS] token embedding
+            outputBuffer.rewind()
+            val allEmbeddings = FloatArray(maxSeqLength * embeddingSize)
+            outputBuffer.asFloatBuffer().get(allEmbeddings)
+            val embedding = allEmbeddings.sliceArray(0 until embeddingSize)
+            
+            val totalTime = System.currentTimeMillis() - startTime
+            
+            // Track stats for average calculation
+            totalEmbeddingTime += totalTime
+            totalEmbeddingCount++
+            
+            // Only log if not suppressed (for single embeddings like chat queries)
+            if (!suppressLogs) {
+                Log.d(TAG, "Embedding generated in ${totalTime}ms (${(1000.0/totalTime).format(2)} embeddings/sec)")
+            }
+            
+            return embedding
         } catch (e: Exception) {
             Log.e(TAG, "Failed to encode text", e)
             throw e

@@ -102,8 +102,12 @@ class DocsViewModel(
         val chunks = WhiteSpaceSplitter.createChunks(text, chunkSize = 500, chunkOverlap = 50)
         val size = chunks.size
         Log.d("DocsViewModel", "Created $size chunks")
+        
+        // Reset stats before processing
+        sentenceEncoder.resetStats()
+        
         chunks.forEachIndexed { index, s ->
-            val embedding = sentenceEncoder.encodeText(s)
+            val embedding = sentenceEncoder.encodeText(s, suppressLogs = true)
             chunksDB.addChunk(
                 Chunk(
                     docId = newDocId,
@@ -113,6 +117,10 @@ class DocsViewModel(
                 ),
             )
         }
+        
+        // Print average stats after processing
+        sentenceEncoder.printAverageStats()
+        
         Log.d("DocsViewModel", "Successfully added document and chunks for: $fileName")
     }
 

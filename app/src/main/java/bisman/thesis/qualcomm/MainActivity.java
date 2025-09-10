@@ -86,26 +86,14 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
 
         try {
-            // Get SoC model from build properties
-            // As of now, only Snapdragon Gen 3 and 8 Elite is supported.
-            HashMap<String, String> supportedSocModel = new HashMap<>();
-            supportedSocModel.putIfAbsent("SM8750", "qualcomm-snapdragon-8-elite.json");
-            supportedSocModel.putIfAbsent("SM8650", "qualcomm-snapdragon-8-gen3.json");
-            supportedSocModel.putIfAbsent("QCS8550", "qualcomm-snapdragon-8-gen2.json");
-
-            String socModel = android.os.Build.SOC_MODEL;
-            if (!supportedSocModel.containsKey(socModel)) {
-                String errorMsg = "Unsupported device. Please ensure you have one of the following device to run the ChatApp: " + supportedSocModel.toString();
-                Log.e("ChatApp", errorMsg);
-                Toast.makeText(this, errorMsg, Toast.LENGTH_LONG).show();
-                finish();
-            }
+            // HTP config is guaranteed to be 8gen3
+            String htpConfigFile = "qualcomm-snapdragon-8-gen3.json";
 
             // Copy assets to External cache
             //  - <assets>/models
             //      - has list of models with tokenizer.json, genie_config.json and model binaries
             //  - <assets>/htp_config/
-            //      - has SM8750.json and SM8650.json and picked up according to device SOC Model at runtime.
+            //      - has qualcomm-snapdragon-8-gen3.json config file
             String externalDir = getExternalCacheDir().getAbsolutePath();
             try {
                 // Copy assets to External cache if not already present
@@ -117,7 +105,7 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, errorMsg, Toast.LENGTH_SHORT).show();
                 finish();
             }
-            Path htpExtConfigPath = Paths.get(externalDir, "htp_config", supportedSocModel.get(socModel));
+            Path htpExtConfigPath = Paths.get(externalDir, "htp_config", htpConfigFile);
             
             // Set the paths that will be used by MainComposeActivity
             MainComposeActivity.modelDirectory = Paths.get(externalDir, "models", "llm").toString();
