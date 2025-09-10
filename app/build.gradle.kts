@@ -155,8 +155,10 @@ dependencies {
     implementation("org.apache.poi:poi:5.2.5")
     implementation("org.apache.poi:poi-ooxml:5.2.5")
     
-    // Sentence embeddings
-    implementation("com.github.shubham0204:Sentence-Embeddings-Android:0.0.3")
+    // TensorFlow Lite for embeddings
+    implementation("org.tensorflow:tensorflow-lite:2.14.0")
+    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
+    implementation("org.tensorflow:tensorflow-lite-task-text:0.4.4")
     
     // Markdown support
     implementation("com.github.jeziellago:compose-markdown:0.5.0")

@@ -1,7 +1,5 @@
 package bisman.thesis.qualcomm.data
-import org.koin.core.annotation.Single
 
-@Single
 class ChunksDB {
     private val chunksBox = ObjectBoxStore.store.boxFor(Chunk::class.java)
 

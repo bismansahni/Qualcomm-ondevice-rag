@@ -14,7 +14,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import android.os.Build
 import bisman.thesis.qualcomm.services.DocumentSyncService
-import org.koin.android.annotation.KoinViewModel
 import android.util.Log
 import java.io.File
 import java.io.InputStream
@@ -24,7 +23,6 @@ import java.net.URL
 import kotlin.math.min
 import bisman.thesis.qualcomm.domain.watcher.DocumentWatcher
 
-@KoinViewModel
 class DocsViewModel(
     val documentsDB: DocumentsDB,
     private val chunksDB: ChunksDB,

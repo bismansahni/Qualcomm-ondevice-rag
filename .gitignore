@@ -91,12 +91,12 @@ ehthumbs.db
 # QNN SDK specific
 app/libs/
 app/src/main/assets/models/*.bin
-app/src/main/assets/models/*.onnx
+app/src/main/assets/models/*.tflite
 app/src/main/assets/htp_config/
 
 # Large model files
 *.bin
-*.onnx
+*.tflite
 *.pt
 *.pth
 *.pb
