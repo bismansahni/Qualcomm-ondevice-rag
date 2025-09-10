@@ -24,11 +24,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
+import java.nio.file.Paths
 
 class MainComposeActivity : ComponentActivity() {
     
     companion object {
-        private const val TAG = "MainComposeActivity"
+        const val TAG = "MainComposeActivity"
         @JvmField
         var modelDirectory: String? = null
         @JvmField
@@ -38,16 +39,25 @@ class MainComposeActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
+        Log.d(TAG, "onCreate called")
+        
         // Set up library paths for Genie/QNN
         try {
             val nativeLibPath = applicationContext.applicationInfo.nativeLibraryDir
             Os.setenv("ADSP_LIBRARY_PATH", nativeLibPath, true)
             Os.setenv("LD_LIBRARY_PATH", nativeLibPath, true)
+            Log.d(TAG, "Native library paths set successfully")
         } catch (e: Exception) {
+            Log.e(TAG, "Failed to set native library paths", e)
             e.printStackTrace()
         }
         
-        // Assets are already copied by MainActivity, just log the paths
+        // Initialize model paths if they're null (happens when app is restarted after being killed)
+        if (modelDirectory == null || htpConfigPath == null) {
+            Log.w(TAG, "Model paths are null, reinitializing...")
+            initializeModelPaths()
+        }
+        
         Log.d(TAG, "Using model directory: $modelDirectory")
         Log.d(TAG, "Using HTP config: $htpConfigPath")
         
@@ -57,6 +67,17 @@ class MainComposeActivity : ComponentActivity() {
                 AppNavigation()
             }
         }
+    }
+    
+    override fun onDestroy() {
+        super.onDestroy()
+        Log.d(TAG, "MainComposeActivity onDestroy() called")
+        
+        // Clear static references to prevent memory leaks
+        modelDirectory = null
+        htpConfigPath = null
+        
+        Log.d(TAG, "Cleared static model paths")
     }
 }
 
@@ -109,5 +130,60 @@ fun AppNavigation() {
         composable("docs") { 
             DocsScreen(onBackClick = { navHostController.navigateUp() }) 
         }
+    }
+}
+
+private fun ComponentActivity.initializeModelPaths() {
+    try {
+        // Get SoC model to determine HTP config
+        val supportedSocModel = mapOf(
+            "SM8750" to "qualcomm-snapdragon-8-elite.json",
+            "SM8650" to "qualcomm-snapdragon-8-gen3.json",
+            "QCS8550" to "qualcomm-snapdragon-8-gen2.json"
+        )
+        
+        val socModel = android.os.Build.SOC_MODEL
+        Log.d(MainComposeActivity.TAG, "Device SoC model: $socModel")
+        
+        if (!supportedSocModel.containsKey(socModel)) {
+            Log.e(MainComposeActivity.TAG, "Unsupported device. SoC model: $socModel")
+            // Use a default config as fallback
+            val defaultConfig = "qualcomm-snapdragon-8-gen3.json"
+            Log.w(MainComposeActivity.TAG, "Using default HTP config: $defaultConfig")
+        }
+        
+        val externalDir = externalCacheDir?.absolutePath
+        if (externalDir == null) {
+            Log.e(MainComposeActivity.TAG, "External cache directory is null")
+            return
+        }
+        
+        // Set the model paths
+        MainComposeActivity.modelDirectory = Paths.get(externalDir, "models", "llm").toString()
+        MainComposeActivity.htpConfigPath = Paths.get(externalDir, "htp_config", 
+            supportedSocModel[socModel] ?: "qualcomm-snapdragon-8-gen3.json").toString()
+        
+        Log.d(MainComposeActivity.TAG, "Model paths initialized:")
+        Log.d(MainComposeActivity.TAG, "  modelDirectory: ${MainComposeActivity.modelDirectory}")
+        Log.d(MainComposeActivity.TAG, "  htpConfigPath: ${MainComposeActivity.htpConfigPath}")
+        
+        // Verify the paths exist
+        val modelDir = File(MainComposeActivity.modelDirectory!!)
+        val htpConfig = File(MainComposeActivity.htpConfigPath!!)
+        
+        if (!modelDir.exists()) {
+            Log.e(MainComposeActivity.TAG, "Model directory does not exist: ${MainComposeActivity.modelDirectory}")
+            Log.w(MainComposeActivity.TAG, "App may need to be restarted from MainActivity to copy assets")
+        } else {
+            Log.d(MainComposeActivity.TAG, "Model directory exists with ${modelDir.listFiles()?.size ?: 0} files")
+        }
+        
+        if (!htpConfig.exists()) {
+            Log.e(MainComposeActivity.TAG, "HTP config file does not exist: ${MainComposeActivity.htpConfigPath}")
+        } else {
+            Log.d(MainComposeActivity.TAG, "HTP config file exists")
+        }
+    } catch (e: Exception) {
+        Log.e(MainComposeActivity.TAG, "Error initializing model paths", e)
     }
 }

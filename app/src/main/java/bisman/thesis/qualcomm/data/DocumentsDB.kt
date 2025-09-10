@@ -1,5 +1,7 @@
 package bisman.thesis.qualcomm.data
 
+import android.util.Log
+import io.objectbox.Box
 import io.objectbox.kotlin.flow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -9,12 +11,26 @@ import org.koin.core.annotation.Single
 
 @Single
 class DocumentsDB {
-    private val docsBox = ObjectBoxStore.store.boxFor(Document::class.java)
+    companion object {
+        private const val TAG = "DocumentsDB"
+    }
+    
+    private val docsBox: Box<Document> by lazy {
+        Log.d(TAG, "Initializing docsBox lazily")
+        try {
+            val box = ObjectBoxStore.store.boxFor(Document::class.java)
+            Log.d(TAG, "DocsBox initialized successfully, current count: ${box.count()}")
+            box
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize docsBox", e)
+            throw e
+        }
+    }
 
     fun addDocument(document: Document): Long {
         val id = docsBox.put(document)
-        android.util.Log.d("DocumentsDB", "Added document: ${document.docFileName} with ID: $id")
-        android.util.Log.d("DocumentsDB", "Total documents now: ${docsBox.count()}")
+        Log.d(TAG, "Added document: ${document.docFileName} with ID: $id")
+        Log.d(TAG, "Total documents now: ${docsBox.count()}")
         return id
     }
 
@@ -43,7 +59,7 @@ class DocumentsDB {
         val document = getDocumentByFilePath(filePath)
         return if (document != null) {
             docsBox.remove(document.docId)
-            android.util.Log.d("DocumentsDB", "Removed document: ${document.docFileName} with path: $filePath")
+            Log.d(TAG, "Removed document: ${document.docFileName} with path: $filePath")
             true
         } else {
             false
