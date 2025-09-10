@@ -89,9 +89,18 @@ class ChatViewModel(
                 val constructor = GenieWrapper::class.java.getDeclaredConstructor(String::class.java, String::class.java)
                 constructor.isAccessible = true
                 
+                // Log memory before loading model
+                val runtime = Runtime.getRuntime()
+                val usedMemory = (runtime.totalMemory() - runtime.freeMemory()) / 1024 / 1024
+                val maxMemory = runtime.maxMemory() / 1024 / 1024
+                Log.d(TAG, "Memory before loading model: ${usedMemory}MB used of ${maxMemory}MB max")
+                
                 Log.d(TAG, "About to create GenieWrapper instance...")
                 genieWrapper = constructor.newInstance(modelDir, htpConfigPath)
                 Log.d(TAG, "GenieWrapper constructor returned")
+                
+                val usedMemoryAfter = (runtime.totalMemory() - runtime.freeMemory()) / 1024 / 1024
+                Log.d(TAG, "Memory after loading model: ${usedMemoryAfter}MB used (delta: ${usedMemoryAfter - usedMemory}MB)")
                 
                 if (genieWrapper != null) {
                     Log.d(TAG, "GenieWrapper created successfully, instance: $genieWrapper")
