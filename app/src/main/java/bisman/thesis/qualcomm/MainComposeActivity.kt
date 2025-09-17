@@ -68,6 +68,26 @@ class MainComposeActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onStop() {
+        super.onStop()
+        Log.d(TAG, "onStop called - releasing models")
+        // Release models when app goes to background
+        // This ensures cleanup even if ViewModel isn't destroyed
+        (application as? ChatApplication)?.releaseModels()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        Log.d(TAG, "onDestroy called - isFinishing: $isFinishing")
+        if (isFinishing) {
+            // App is actually closing, force process termination
+            // This ensures next launch is completely fresh
+            Log.d(TAG, "App finishing - killing process for clean state")
+            android.os.Process.killProcess(android.os.Process.myPid())
+            System.exit(0)
+        }
+    }
 }
 
 @OptIn(ExperimentalAnimationApi::class)

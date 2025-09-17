@@ -30,6 +30,8 @@ class SentenceEmbeddingProvider(private val context: Context) {
         android.util.Log.d("SentenceEmbeddingProvider", "Releasing ONNX model")
         sentenceEmbedding = null
         System.gc() // Suggest garbage collection
+        System.runFinalization() // Force finalizers to run
+        android.util.Log.d("SentenceEmbeddingProvider", "ONNX model released, finalizers triggered")
     }
 
     private fun copyToLocalStorage(): ByteArray {

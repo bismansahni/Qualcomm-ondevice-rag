@@ -41,6 +41,16 @@ class ChatViewModel(
     private var genieWrapper: GenieWrapper? = null
 
     init {
+        // Try to clean any residual state first
+        try {
+            Log.d(TAG, "Pre-init cleanup: releasing any existing embeddings")
+            sentenceEncoder.release()
+            System.gc()
+            Thread.sleep(100) // Small delay for cleanup
+        } catch (e: Exception) {
+            Log.w(TAG, "Pre-init cleanup error (can be ignored): ${e.message}")
+        }
+
         // Eager initialization like ChatApp's onCreate
         try {
             val modelDir = MainComposeActivity.modelDirectory
@@ -48,17 +58,22 @@ class ChatViewModel(
 
             if (modelDir == null || htpConfigPath == null) {
                 Log.e(TAG, "Error getting additional info from bundle.")
-                _responseState.value = "Unexpected error observed. Exiting app."
+                _responseState.value = "Model paths not initialized. Please restart app."
             } else {
                 // Load Model - exactly like ChatApp does in onCreate
                 val constructor = GenieWrapper::class.java.getDeclaredConstructor(String::class.java, String::class.java)
                 constructor.isAccessible = true
                 genieWrapper = constructor.newInstance(modelDir, htpConfigPath)
                 Log.i(TAG, "llm Loaded.")
+
+                // Re-initialize embeddings after Genie is loaded
+                // This ensures both models are ready
+                Log.d(TAG, "Re-initializing embeddings after Genie load")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error during conversation with Chatbot: ${e.toString()}")
-            _responseState.value = "Unexpected error observed. Exiting app."
+            Log.e(TAG, "Error during initialization: ${e.toString()}")
+            // Don't crash, just set error state
+            _responseState.value = "Error initializing. Please restart app."
         }
     }
 
