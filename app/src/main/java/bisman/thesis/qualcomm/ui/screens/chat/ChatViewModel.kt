@@ -139,5 +139,12 @@ class ChatViewModel(
 
     fun checkNumDocuments(): Boolean = documentsDB.getDocsCount() > 0
 
-    // Removed onCleared - let Java's GC handle everything like ChatApp does
+    override fun onCleared() {
+        super.onCleared()
+        // Release ONNX model to free DSP for next app launch
+        Log.d(TAG, "ChatViewModel onCleared - releasing embeddings")
+        sentenceEncoder.release()
+        // Let GenieWrapper cleanup naturally through finalize()
+        genieWrapper = null
+    }
 }
