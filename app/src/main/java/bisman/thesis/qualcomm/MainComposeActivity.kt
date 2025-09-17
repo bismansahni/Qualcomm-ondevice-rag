@@ -68,17 +68,6 @@ class MainComposeActivity : ComponentActivity() {
             }
         }
     }
-    
-    override fun onDestroy() {
-        super.onDestroy()
-        Log.d(TAG, "MainComposeActivity onDestroy() called")
-        
-        // Clear static references to prevent memory leaks
-        modelDirectory = null
-        htpConfigPath = null
-        
-        Log.d(TAG, "Cleared static model paths")
-    }
 }
 
 @OptIn(ExperimentalAnimationApi::class)

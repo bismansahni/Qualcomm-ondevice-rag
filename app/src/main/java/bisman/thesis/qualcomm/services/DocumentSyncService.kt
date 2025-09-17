@@ -459,15 +459,6 @@ class DocumentSyncService : Service(), KoinComponent {
         
         return START_STICKY
     }
-    
-    override fun onDestroy() {
-        super.onDestroy()
-        Log.d(TAG, "DocumentSyncService destroyed")
-        
-        fileObserver?.stopWatching()
-        syncTimer?.cancel()
-        serviceScope.cancel()
-    }
-    
+
     override fun onBind(intent: Intent?): IBinder? = null
 }

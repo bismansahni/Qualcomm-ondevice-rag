@@ -40,90 +40,31 @@ class ChatViewModel(
 
     private var genieWrapper: GenieWrapper? = null
 
-    fun cleanupGenie() {
-        Log.d(TAG, "===== cleanupGenie START =====")
-        try {
-            genieWrapper?.let { wrapper ->
-                Log.d(TAG, "Cleaning up GenieWrapper...")
-                
-                // Use reflection to call freeModel
-                val freeModelMethod = GenieWrapper::class.java.getDeclaredMethod("freeModel", Long::class.javaPrimitiveType)
-                freeModelMethod.isAccessible = true
-                
-                val handleField = GenieWrapper::class.java.getDeclaredField("genieWrapperNativeHandle")
-                handleField.isAccessible = true
-                val handle = handleField.getLong(wrapper)
-                
-                if (handle != 0L) {
-                    Log.d(TAG, "Freeing native model with handle: $handle")
-                    freeModelMethod.invoke(wrapper, handle)
-                    
-                    // Set handle to 0 to mark as freed
-                    handleField.setLong(wrapper, 0L)
-                }
-                
-                genieWrapper = null
-                Log.d(TAG, "GenieWrapper cleaned up successfully")
-            } ?: Log.d(TAG, "GenieWrapper is already null, nothing to clean up")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error cleaning up GenieWrapper", e)
-        }
-        Log.d(TAG, "===== cleanupGenie END =====")
-    }
 
-    fun initializeGenie(retryCount: Int = 0) {
-        Log.d(TAG, "===== initializeGenie START (retry: $retryCount) =====")
+    fun initializeGenie() {
+        // Match ChatApp's simple approach - no retries, no cleanup
         if (genieWrapper == null) {
             try {
                 val modelDir = MainComposeActivity.modelDirectory
                 val htpConfigPath = MainComposeActivity.htpConfigPath
-                
-                Log.d(TAG, "Model directory from MainActivity: $modelDir")
-                Log.d(TAG, "HTP config path from MainActivity: $htpConfigPath")
-                
+
                 if (modelDir == null || htpConfigPath == null) {
-                    Log.e(TAG, "Model files not yet copied - modelDir: $modelDir, htpConfigPath: $htpConfigPath")
-                    _responseState.value = "Error: Model files not yet copied. Please wait and try again."
+                    Log.e(TAG, "Error getting additional info from bundle.")
+                    _responseState.value = "Unexpected error observed. Exiting app."
                     return
                 }
-                
-                // If this is a retry, try to clean up any previous DSP sessions
-                if (retryCount > 0) {
-                    Log.d(TAG, "Retry attempt $retryCount - cleaning up any previous sessions")
-                    cleanupGenie()
-                    Thread.sleep(500) // Give DSP time to clean up
-                }
-                
-                Log.d(TAG, "Creating GenieWrapper with:")
-                Log.d(TAG, "  modelDir: $modelDir")
-                Log.d(TAG, "  htpConfigPath: $htpConfigPath")
-                
-                // Use reflection to create GenieWrapper since constructor is package-private
+
+                // Load Model - exactly like ChatApp
                 val constructor = GenieWrapper::class.java.getDeclaredConstructor(String::class.java, String::class.java)
                 constructor.isAccessible = true
                 genieWrapper = constructor.newInstance(modelDir, htpConfigPath)
-                
-                Log.d(TAG, "GenieWrapper created successfully")
+                Log.i(TAG, "llm Loaded.")
+
             } catch (e: Exception) {
-                Log.e(TAG, "Error initializing model (attempt ${retryCount + 1})", e)
-                
-                // If initialization failed and we haven't exceeded max retries
-                if (retryCount < 2) {
-                    Log.d(TAG, "Will retry initialization...")
-                    // Clean up any partial initialization
-                    cleanupGenie()
-                    Thread.sleep(1000) // Wait a bit before retry
-                    // Retry
-                    initializeGenie(retryCount + 1)
-                } else {
-                    Log.e(TAG, "Max retries exceeded, giving up")
-                    _responseState.value = "Error initializing model after ${retryCount + 1} attempts: ${e.message}"
-                }
+                Log.e(TAG, "Error during conversation with Chatbot: ${e.toString()}")
+                _responseState.value = "Unexpected error observed. Exiting app."
             }
-        } else {
-            Log.d(TAG, "GenieWrapper already initialized")
         }
-        Log.d(TAG, "===== initializeGenie END =====")
     }
 
     fun getAnswer(query: String) {
@@ -204,9 +145,5 @@ class ChatViewModel(
 
     fun checkNumDocuments(): Boolean = documentsDB.getDocsCount() > 0
 
-    override fun onCleared() {
-        super.onCleared()
-        Log.d(TAG, "ChatViewModel onCleared() called")
-        cleanupGenie()
-    }
+    // Removed onCleared - let Java's GC handle everything like ChatApp does
 }
