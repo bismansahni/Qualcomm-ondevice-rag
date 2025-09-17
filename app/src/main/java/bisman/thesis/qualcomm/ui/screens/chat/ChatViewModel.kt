@@ -40,30 +40,25 @@ class ChatViewModel(
 
     private var genieWrapper: GenieWrapper? = null
 
+    init {
+        // Eager initialization like ChatApp's onCreate
+        try {
+            val modelDir = MainComposeActivity.modelDirectory
+            val htpConfigPath = MainComposeActivity.htpConfigPath
 
-    fun initializeGenie() {
-        // Match ChatApp's simple approach - no retries, no cleanup
-        if (genieWrapper == null) {
-            try {
-                val modelDir = MainComposeActivity.modelDirectory
-                val htpConfigPath = MainComposeActivity.htpConfigPath
-
-                if (modelDir == null || htpConfigPath == null) {
-                    Log.e(TAG, "Error getting additional info from bundle.")
-                    _responseState.value = "Unexpected error observed. Exiting app."
-                    return
-                }
-
-                // Load Model - exactly like ChatApp
+            if (modelDir == null || htpConfigPath == null) {
+                Log.e(TAG, "Error getting additional info from bundle.")
+                _responseState.value = "Unexpected error observed. Exiting app."
+            } else {
+                // Load Model - exactly like ChatApp does in onCreate
                 val constructor = GenieWrapper::class.java.getDeclaredConstructor(String::class.java, String::class.java)
                 constructor.isAccessible = true
                 genieWrapper = constructor.newInstance(modelDir, htpConfigPath)
                 Log.i(TAG, "llm Loaded.")
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error during conversation with Chatbot: ${e.toString()}")
-                _responseState.value = "Unexpected error observed. Exiting app."
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during conversation with Chatbot: ${e.toString()}")
+            _responseState.value = "Unexpected error observed. Exiting app."
         }
     }
 
@@ -103,7 +98,6 @@ class ChatViewModel(
 
             CoroutineScope(Dispatchers.IO).launch {
                 Log.d(TAG, "Launching coroutine for model inference...")
-                initializeGenie()
                 if (genieWrapper != null) {
                     Log.d(TAG, "GenieWrapper is ready, sending prompt...")
                     Log.d(TAG, "Prompt text length: ${promptText.length}")
@@ -129,8 +123,8 @@ class ChatViewModel(
                     Log.d(TAG, "Response generation completed")
                     _isGeneratingResponseState.value = false
                 } else {
-                    Log.e(TAG, "GenieWrapper is null after initialization")
-                    _responseState.value = "Error: Model not initialized"
+                    Log.e(TAG, "GenieWrapper is null")
+                    _responseState.value = "Error: Model not initialized. Please restart the app."
                     _isGeneratingResponseState.value = false
                 }
             }
