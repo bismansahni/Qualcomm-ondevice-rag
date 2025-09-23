@@ -21,6 +21,8 @@ class ChatViewModel(
     private val chunksDB: ChunksDB,
     private val sentenceEncoder: SentenceEmbeddingProvider,
 ) : ViewModel() {
+
+    private fun Double.format(digits: Int) = "%.${digits}f".format(this)
     
     companion object {
         private const val TAG = "ChatViewModel"
@@ -80,20 +82,27 @@ class ChatViewModel(
     fun getAnswer(query: String) {
         Log.d(TAG, "===== getAnswer START =====")
         Log.d(TAG, "Query: $query")
-        
+
+        val startTime = System.currentTimeMillis()
+        var ragTime = 0L
+        var ttftTime = 0L
+        var firstTokenReceived = false
+        var tokenCount = 0
+
         _isGeneratingResponseState.value = true
         _questionState.value = query
         _responseState.value = ""
         _retrievedContextListState.value = emptyList()
-        
+
         try {
             var jointContext = ""
             val retrievedContextList = ArrayList<RetrievedContext>()
             
             // Check if we have documents to search
             if (documentsDB.getDocsCount() > 0) {
+                val ragStartTime = System.currentTimeMillis()
                 val queryEmbedding = sentenceEncoder.encodeText(query)
-                
+
                 Log.d(TAG, "Getting similar chunks from database...")
                 chunksDB.getSimilarChunks(queryEmbedding, n = 3).forEach {
                     jointContext += " " + it.second.chunkData
@@ -101,6 +110,8 @@ class ChatViewModel(
                     Log.d(TAG, "Retrieved chunk from: ${it.second.docFileName}, size: ${it.second.chunkData.length}")
                 }
                 _retrievedContextListState.value = retrievedContextList
+                ragTime = System.currentTimeMillis() - ragStartTime
+                Log.i(TAG, "⏱️ RAG Retrieval Time: ${ragTime}ms")
             }
             
             Log.d(TAG, "Total context length: ${jointContext.length}")
@@ -117,25 +128,48 @@ class ChatViewModel(
                     Log.d(TAG, "GenieWrapper is ready, sending prompt...")
                     Log.d(TAG, "Prompt text length: ${promptText.length}")
                     
+                    val inferenceStartTime = System.currentTimeMillis()
+
                     genieWrapper!!.getResponseForPrompt(
                         promptText,
                         object : StringCallback {
                             override fun onNewString(str: String?) {
                                 str?.let { token ->
-                                    Log.d(TAG, "Received token: '${token}' (${token.length} chars)")
+                                    tokenCount++
+
+                                    // Track Time to First Token
+                                    if (!firstTokenReceived) {
+                                        firstTokenReceived = true
+                                        ttftTime = System.currentTimeMillis() - inferenceStartTime
+                                        Log.i(TAG, "🚀 Time to First Token (TTFT): ${ttftTime}ms")
+                                    }
+
+                                    Log.d(TAG, "Token #$tokenCount: '${token}' (${token.length} chars)")
+
                                     // Update on Main thread for immediate UI update
                                     CoroutineScope(Dispatchers.Main).launch {
                                         val currentResponse = _responseState.value
                                         val newResponse = currentResponse + token
-                                        Log.d(TAG, "Updating response from ${currentResponse.length} to ${newResponse.length} chars")
                                         _responseState.value = newResponse
-                                        Log.d(TAG, "Response state updated, current text: '${newResponse.takeLast(50)}'")
                                     }
                                 }
                             }
                         }
                     )
-                    Log.d(TAG, "Response generation completed")
+
+                    val totalInferenceTime = System.currentTimeMillis() - inferenceStartTime
+                    val totalTime = System.currentTimeMillis() - startTime
+
+                    Log.i(TAG, "═══════════════════════════════════════")
+                    Log.i(TAG, "📊 PERFORMANCE METRICS:")
+                    Log.i(TAG, "⏱️ RAG Retrieval: ${ragTime}ms")
+                    Log.i(TAG, "🚀 Time to First Token: ${ttftTime}ms")
+                    Log.i(TAG, "⚡ Total Inference: ${totalInferenceTime}ms")
+                    Log.i(TAG, "📝 Total Tokens: $tokenCount")
+                    Log.i(TAG, "💨 Tokens/Second: ${if (totalInferenceTime > 0) (tokenCount * 1000.0 / totalInferenceTime).format(2) else "N/A"}")
+                    Log.i(TAG, "⏰ Total Time: ${totalTime}ms")
+                    Log.i(TAG, "═══════════════════════════════════════")
+
                     _isGeneratingResponseState.value = false
                 } else {
                     Log.e(TAG, "GenieWrapper is null")

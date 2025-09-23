@@ -57,9 +57,35 @@ class ChunksDB {
             .build()
             .findIds()
             .toList()
-        
+
         Log.d(TAG, "Found ${idsToRemove.size} chunks to remove")
         chunksBox.removeByIds(idsToRemove)
         Log.d(TAG, "Chunks removed successfully")
+    }
+
+    fun removeChunksByParagraph(docId: Long, paragraphIndex: Int) {
+        Log.d(TAG, "Removing chunks for document ID: $docId, paragraph: $paragraphIndex")
+        val idsToRemove = chunksBox
+            .query(
+                Chunk_.docId.equal(docId)
+                    .and(Chunk_.paragraphIndex.equal(paragraphIndex.toLong()))
+            )
+            .build()
+            .findIds()
+            .toList()
+
+        Log.d(TAG, "Found ${idsToRemove.size} chunks to remove from paragraph $paragraphIndex")
+        chunksBox.removeByIds(idsToRemove)
+        Log.d(TAG, "Paragraph chunks removed successfully")
+    }
+
+    fun getChunksByParagraph(docId: Long, paragraphIndex: Int): List<Chunk> {
+        return chunksBox
+            .query(
+                Chunk_.docId.equal(docId)
+                    .and(Chunk_.paragraphIndex.equal(paragraphIndex.toLong()))
+            )
+            .build()
+            .find()
     }
 }

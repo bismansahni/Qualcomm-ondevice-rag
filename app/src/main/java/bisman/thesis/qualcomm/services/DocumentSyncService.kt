@@ -19,6 +19,7 @@ import bisman.thesis.qualcomm.data.DocumentsDB
 import bisman.thesis.qualcomm.domain.embeddings.SentenceEmbeddingProvider
 import bisman.thesis.qualcomm.domain.readers.Readers
 import bisman.thesis.qualcomm.domain.splitters.WhiteSpaceSplitter
+import bisman.thesis.qualcomm.utils.ContentHasher
 import kotlinx.coroutines.*
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -258,36 +259,53 @@ class DocumentSyncService : Service(), KoinComponent {
         
         try {
             Log.d(TAG, "Starting folder sync for: $folderPath")
-            
+
             // Get all valid documents in folder
             val folderFiles = folder.listFiles()
                 ?.filter { it.isFile && isValidDocument(it) }
                 ?.associateBy { it.absolutePath }
                 ?: emptyMap()
-            
+
             // Get all documents from database
             val dbDocuments = documentsDB.getAllDocumentsMap()
-            
+
             Log.d(TAG, "Found ${folderFiles.size} files in folder, ${dbDocuments.size} documents in database")
-            
-            // Process new or modified files
-            folderFiles.forEach { (path, file) ->
+
+            val hasWork = folderFiles.any { (path, file) ->
                 val dbDoc = dbDocuments[path]
-                if (dbDoc == null) {
-                    Log.d(TAG, "New file found: ${file.name}")
-                    processNewDocument(file)
-                } else if (file.lastModified() > dbDoc.fileLastModified) {
-                    Log.d(TAG, "Modified file found: ${file.name}")
-                    processModifiedDocument(file, dbDoc)
+                dbDoc == null || file.lastModified() > dbDoc.fileLastModified
+            } || dbDocuments.any { (path, _) -> !folderFiles.containsKey(path) }
+
+            // Only initialize embeddings if there's actual work to do
+            if (hasWork) {
+                Log.d(TAG, "Documents need processing - initializing embeddings")
+                sentenceEncoder.ensureInitialized()
+
+                // Process new or modified files
+                folderFiles.forEach { (path, file) ->
+                    val dbDoc = dbDocuments[path]
+                    if (dbDoc == null) {
+                        Log.d(TAG, "New file found: ${file.name}")
+                        processNewDocument(file)
+                    } else if (file.lastModified() > dbDoc.fileLastModified) {
+                        Log.d(TAG, "Modified file found: ${file.name}")
+                        processModifiedDocument(file, dbDoc)
+                    }
                 }
-            }
-            
-            // Remove documents for deleted files
-            dbDocuments.forEach { (path, doc) ->
-                if (!folderFiles.containsKey(path)) {
-                    Log.d(TAG, "File no longer exists: ${doc.docFileName}")
-                    removeDocumentFromDatabase(doc)
+
+                // Remove documents for deleted files
+                dbDocuments.forEach { (path, doc) ->
+                    if (!folderFiles.containsKey(path)) {
+                        Log.d(TAG, "File no longer exists: ${doc.docFileName}")
+                        removeDocumentFromDatabase(doc)
+                    }
                 }
+
+                // Release embeddings after processing
+                Log.d(TAG, "Releasing embeddings after batch processing")
+                sentenceEncoder.release()
+            } else {
+                Log.d(TAG, "No documents need processing")
             }
             
             lastSyncTime = System.currentTimeMillis()
@@ -303,14 +321,22 @@ class DocumentSyncService : Service(), KoinComponent {
     
     private suspend fun handleFileAdded(file: File) = withContext(Dispatchers.IO) {
         if (!isValidDocument(file)) return@withContext
-        
+
         // Check if already in database
         if (documentsDB.documentExistsWithPath(file.absolutePath)) {
             Log.d(TAG, "File already in database: ${file.name}")
             return@withContext
         }
-        
+
+        // Initialize embeddings for this file
+        Log.d(TAG, "New file detected - initializing embeddings")
+        sentenceEncoder.ensureInitialized()
+
         processNewDocument(file)
+
+        // Release embeddings after processing
+        Log.d(TAG, "Releasing embeddings after processing ${file.name}")
+        sentenceEncoder.release()
     }
     
     private suspend fun handleFileDeleted(file: File) = withContext(Dispatchers.IO) {
@@ -322,53 +348,70 @@ class DocumentSyncService : Service(), KoinComponent {
     
     private suspend fun handleFileModified(file: File) = withContext(Dispatchers.IO) {
         if (!isValidDocument(file)) return@withContext
-        
+
         val document = documentsDB.getDocumentByFilePath(file.absolutePath)
         if (document != null && file.lastModified() > document.fileLastModified) {
+            // Initialize embeddings for this file
+            Log.d(TAG, "File modified - initializing embeddings")
+            sentenceEncoder.ensureInitialized()
+
             processModifiedDocument(file, document)
+
+            // Release embeddings after processing
+            Log.d(TAG, "Releasing embeddings after processing modified ${file.name}")
+            sentenceEncoder.release()
         }
     }
     
     private suspend fun processNewDocument(file: File) = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "Processing new document: ${file.name}")
-            
+
             val documentType = when (file.extension.lowercase()) {
                 "pdf" -> Readers.DocumentType.PDF
                 "docx", "doc" -> Readers.DocumentType.MS_DOCX
                 else -> return@withContext
             }
-            
+
             file.inputStream().use { inputStream ->
                 val text = Readers.getReaderForDocType(documentType)
                     .readFromInputStream(inputStream) ?: return@withContext
-                
+
+                // Get paragraphs and compute hashes
+                val paragraphs = WhiteSpaceSplitter.getParagraphs(text)
+                val paragraphHashesJson = ContentHasher.hashParagraphs(paragraphs)
+
                 val document = Document(
                     docText = text,
                     docFileName = file.name,
                     docAddedTime = System.currentTimeMillis(),
                     docFilePath = file.absolutePath,
                     fileLastModified = file.lastModified(),
-                    fileSize = file.length()
+                    fileSize = file.length(),
+                    paragraphHashes = paragraphHashesJson
                 )
-                
+
                 val docId = documentsDB.addDocument(document)
-                
-                // Create and store chunks
-                val chunks = WhiteSpaceSplitter.createChunks(text, chunkSize = 500, chunkOverlap = 50)
-                chunks.forEach { chunkText ->
-                    val embedding = sentenceEncoder.encodeText(chunkText)
+
+                // Create and store chunks with paragraph tracking
+                val chunksWithParagraphs = WhiteSpaceSplitter.createChunksWithParagraphTracking(
+                    text, chunkSize = 500, chunkOverlap = 50
+                )
+
+                chunksWithParagraphs.forEach { chunkWithPara ->
+                    val embedding = sentenceEncoder.encodeText(chunkWithPara.text)
                     chunksDB.addChunk(
                         Chunk(
                             docId = docId,
                             docFileName = file.name,
-                            chunkData = chunkText,
-                            chunkEmbedding = embedding
+                            chunkData = chunkWithPara.text,
+                            chunkEmbedding = embedding,
+                            paragraphIndex = chunkWithPara.paragraphIndex
                         )
                     )
                 }
-                
-                Log.d(TAG, "Successfully processed document: ${file.name} with ${chunks.size} chunks")
+
+                Log.d(TAG, "Successfully processed document: ${file.name} with ${chunksWithParagraphs.size} chunks")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error processing document: ${file.name}", e)
@@ -378,42 +421,81 @@ class DocumentSyncService : Service(), KoinComponent {
     private suspend fun processModifiedDocument(file: File, document: Document) = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "Processing modified document: ${file.name}")
-            
-            // Remove old chunks
-            chunksDB.removeChunks(document.docId)
-            
+
             // Re-process document
             val documentType = when (file.extension.lowercase()) {
                 "pdf" -> Readers.DocumentType.PDF
                 "docx", "doc" -> Readers.DocumentType.MS_DOCX
                 else -> return@withContext
             }
-            
+
             file.inputStream().use { inputStream ->
                 val text = Readers.getReaderForDocType(documentType)
                     .readFromInputStream(inputStream) ?: return@withContext
-                
-                // Update document
-                document.docText = text
-                document.fileLastModified = file.lastModified()
-                document.fileSize = file.length()
-                documentsDB.addDocument(document) // This will update existing
-                
-                // Create new chunks
-                val chunks = WhiteSpaceSplitter.createChunks(text, chunkSize = 500, chunkOverlap = 50)
-                chunks.forEach { chunkText ->
-                    val embedding = sentenceEncoder.encodeText(chunkText)
-                    chunksDB.addChunk(
-                        Chunk(
-                            docId = document.docId,
-                            docFileName = file.name,
-                            chunkData = chunkText,
-                            chunkEmbedding = embedding
+
+                // Get new paragraphs and compare with old
+                val newParagraphs = WhiteSpaceSplitter.getParagraphs(text)
+                val oldHashes = ContentHasher.parseParagraphHashes(document.paragraphHashes)
+
+                // Find changed paragraphs
+                val changes = ContentHasher.findChangedParagraphs(
+                    newParagraphs = newParagraphs,
+                    oldHashes = oldHashes
+                )
+
+                Log.d(TAG, "Document ${file.name} has ${changes.changedIndices.size} changed paragraphs, " +
+                        "${changes.addedIndices.size} added, ${changes.deletedIndices.size} deleted")
+
+                // Only process if there are actual changes
+                if (changes.changedIndices.isNotEmpty() || changes.addedIndices.isNotEmpty() || changes.deletedIndices.isNotEmpty()) {
+                    // Remove chunks from changed and deleted paragraphs
+                    (changes.changedIndices + changes.deletedIndices).forEach { paragraphIndex ->
+                        chunksDB.removeChunksByParagraph(document.docId, paragraphIndex)
+                    }
+
+                    // Create chunks for changed and new paragraphs
+                    val paragraphsToProcess = (changes.changedIndices + changes.addedIndices)
+
+                    if (paragraphsToProcess.isNotEmpty()) {
+                        val chunksWithParagraphs = WhiteSpaceSplitter.createChunksWithParagraphTracking(
+                            text, chunkSize = 500, chunkOverlap = 50
                         )
-                    )
+
+                        // Only process chunks from changed paragraphs
+                        val chunksToAdd = chunksWithParagraphs.filter { chunk ->
+                            chunk.paragraphIndex in paragraphsToProcess
+                        }
+
+                        Log.d(TAG, "Processing ${chunksToAdd.size} chunks from ${paragraphsToProcess.size} changed paragraphs")
+
+                        chunksToAdd.forEach { chunkWithPara ->
+                            val embedding = sentenceEncoder.encodeText(chunkWithPara.text)
+                            chunksDB.addChunk(
+                                Chunk(
+                                    docId = document.docId,
+                                    docFileName = file.name,
+                                    chunkData = chunkWithPara.text,
+                                    chunkEmbedding = embedding,
+                                    paragraphIndex = chunkWithPara.paragraphIndex
+                                )
+                            )
+                        }
+                    }
+
+                    // Update document with new text and hashes
+                    document.docText = text
+                    document.fileLastModified = file.lastModified()
+                    document.fileSize = file.length()
+                    document.paragraphHashes = ContentHasher.hashParagraphs(newParagraphs)
+                    documentsDB.addDocument(document) // This will update existing
+
+                    Log.d(TAG, "Successfully updated document: ${file.name} - processed only changed paragraphs")
+                } else {
+                    Log.d(TAG, "No content changes detected in ${file.name}, updating metadata only")
+                    document.fileLastModified = file.lastModified()
+                    document.fileSize = file.length()
+                    documentsDB.addDocument(document)
                 }
-                
-                Log.d(TAG, "Successfully updated document: ${file.name}")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error updating document: ${file.name}", e)
