@@ -20,6 +20,7 @@ import bisman.thesis.qualcomm.domain.embeddings.SentenceEmbeddingProvider
 import bisman.thesis.qualcomm.domain.readers.Readers
 import bisman.thesis.qualcomm.domain.splitters.WhiteSpaceSplitter
 import bisman.thesis.qualcomm.utils.ContentHasher
+import bisman.thesis.qualcomm.utils.DocumentProcessingState
 import kotlinx.coroutines.*
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -366,20 +367,31 @@ class DocumentSyncService : Service(), KoinComponent {
     private suspend fun processNewDocument(file: File) = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "Processing new document: ${file.name}")
+            DocumentProcessingState.startProcessing(file.absolutePath)
 
             val documentType = when (file.extension.lowercase()) {
                 "pdf" -> Readers.DocumentType.PDF
                 "docx", "doc" -> Readers.DocumentType.MS_DOCX
-                else -> return@withContext
+                else -> {
+                    DocumentProcessingState.finishProcessing(file.absolutePath)
+                    return@withContext
+                }
             }
 
             file.inputStream().use { inputStream ->
                 val text = Readers.getReaderForDocType(documentType)
-                    .readFromInputStream(inputStream) ?: return@withContext
+                    .readFromInputStream(inputStream) ?: run {
+                        DocumentProcessingState.finishProcessing(file.absolutePath)
+                        return@withContext
+                    }
+
+                DocumentProcessingState.updateProgress(file.absolutePath, 20)
 
                 // Get paragraphs and compute hashes
                 val paragraphs = WhiteSpaceSplitter.getParagraphs(text)
                 val paragraphHashesJson = ContentHasher.hashParagraphs(paragraphs)
+
+                DocumentProcessingState.updateProgress(file.absolutePath, 30)
 
                 val document = Document(
                     docText = text,
@@ -392,13 +404,15 @@ class DocumentSyncService : Service(), KoinComponent {
                 )
 
                 val docId = documentsDB.addDocument(document)
+                DocumentProcessingState.updateProgress(file.absolutePath, 40)
 
                 // Create and store chunks with paragraph tracking
                 val chunksWithParagraphs = WhiteSpaceSplitter.createChunksWithParagraphTracking(
                     text, chunkSize = 500, chunkOverlap = 50
                 )
 
-                chunksWithParagraphs.forEach { chunkWithPara ->
+                val totalChunks = chunksWithParagraphs.size
+                chunksWithParagraphs.forEachIndexed { index, chunkWithPara ->
                     val embedding = sentenceEncoder.encodeText(chunkWithPara.text)
                     chunksDB.addChunk(
                         Chunk(
@@ -409,18 +423,24 @@ class DocumentSyncService : Service(), KoinComponent {
                             paragraphIndex = chunkWithPara.paragraphIndex
                         )
                     )
+                    // Update progress as chunks are processed
+                    val progress = 40 + ((index + 1) * 60 / totalChunks)
+                    DocumentProcessingState.updateProgress(file.absolutePath, progress)
                 }
 
                 Log.d(TAG, "Successfully processed document: ${file.name} with ${chunksWithParagraphs.size} chunks")
+                DocumentProcessingState.finishProcessing(file.absolutePath)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error processing document: ${file.name}", e)
+            DocumentProcessingState.finishProcessing(file.absolutePath)
         }
     }
     
     private suspend fun processModifiedDocument(file: File, document: Document) = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "Processing modified document: ${file.name}")
+            DocumentProcessingState.startProcessing(file.absolutePath)
 
             // Re-process document
             val documentType = when (file.extension.lowercase()) {
@@ -431,7 +451,12 @@ class DocumentSyncService : Service(), KoinComponent {
 
             file.inputStream().use { inputStream ->
                 val text = Readers.getReaderForDocType(documentType)
-                    .readFromInputStream(inputStream) ?: return@withContext
+                    .readFromInputStream(inputStream) ?: run {
+                        DocumentProcessingState.finishProcessing(file.absolutePath)
+                        return@withContext
+                    }
+
+                DocumentProcessingState.updateProgress(file.absolutePath, 20)
 
                 // Get new paragraphs and compare with old
                 val newParagraphs = WhiteSpaceSplitter.getParagraphs(text)
@@ -446,12 +471,16 @@ class DocumentSyncService : Service(), KoinComponent {
                 Log.d(TAG, "Document ${file.name} has ${changes.changedIndices.size} changed paragraphs, " +
                         "${changes.addedIndices.size} added, ${changes.deletedIndices.size} deleted")
 
+                DocumentProcessingState.updateProgress(file.absolutePath, 30)
+
                 // Only process if there are actual changes
                 if (changes.changedIndices.isNotEmpty() || changes.addedIndices.isNotEmpty() || changes.deletedIndices.isNotEmpty()) {
                     // Remove chunks from changed and deleted paragraphs
                     (changes.changedIndices + changes.deletedIndices).forEach { paragraphIndex ->
                         chunksDB.removeChunksByParagraph(document.docId, paragraphIndex)
                     }
+
+                    DocumentProcessingState.updateProgress(file.absolutePath, 40)
 
                     // Create chunks for changed and new paragraphs
                     val paragraphsToProcess = (changes.changedIndices + changes.addedIndices)
@@ -468,7 +497,8 @@ class DocumentSyncService : Service(), KoinComponent {
 
                         Log.d(TAG, "Processing ${chunksToAdd.size} chunks from ${paragraphsToProcess.size} changed paragraphs")
 
-                        chunksToAdd.forEach { chunkWithPara ->
+                        val totalChunks = chunksToAdd.size
+                        chunksToAdd.forEachIndexed { index, chunkWithPara ->
                             val embedding = sentenceEncoder.encodeText(chunkWithPara.text)
                             chunksDB.addChunk(
                                 Chunk(
@@ -479,6 +509,9 @@ class DocumentSyncService : Service(), KoinComponent {
                                     paragraphIndex = chunkWithPara.paragraphIndex
                                 )
                             )
+                            // Update progress as chunks are processed
+                            val progress = 40 + ((index + 1) * 60 / totalChunks.coerceAtLeast(1))
+                            DocumentProcessingState.updateProgress(file.absolutePath, progress)
                         }
                     }
 
@@ -497,8 +530,10 @@ class DocumentSyncService : Service(), KoinComponent {
                     documentsDB.addDocument(document)
                 }
             }
+            DocumentProcessingState.finishProcessing(file.absolutePath)
         } catch (e: Exception) {
             Log.e(TAG, "Error updating document: ${file.name}", e)
+            DocumentProcessingState.finishProcessing(file.absolutePath)
         }
     }
     

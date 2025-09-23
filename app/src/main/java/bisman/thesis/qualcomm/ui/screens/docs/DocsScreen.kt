@@ -58,6 +58,7 @@ import bisman.thesis.qualcomm.data.Document
 import bisman.thesis.qualcomm.ui.components.AppAlertDialog
 import bisman.thesis.qualcomm.ui.components.createAlertDialog
 import bisman.thesis.qualcomm.ui.components.StoragePermissionHandler
+import bisman.thesis.qualcomm.utils.DocumentProcessingState
 import bisman.thesis.qualcomm.ui.theme.*
 import bisman.thesis.qualcomm.ui.theme.ChatAppTheme
 import kotlinx.coroutines.delay
@@ -794,6 +795,12 @@ private fun AnimatedDocumentCard(
     var isPressed by remember { mutableStateOf(false) }
     var isSwipeToDelete by remember { mutableStateOf(false) }
 
+    // Observe processing state
+    val processingDocuments by DocumentProcessingState.processingDocuments.collectAsState()
+    val processingProgress by DocumentProcessingState.processingProgress.collectAsState()
+    val isProcessing = processingDocuments.contains(document.docFilePath)
+    val progress = processingProgress[document.docFilePath] ?: 0
+
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.98f else 1f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
@@ -910,6 +917,54 @@ private fun AnimatedDocumentCard(
                                     text = DateUtils.getRelativeTimeSpanString(document.docAddedTime).toString(),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            // Processing indicator
+                            if (isProcessing) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Animated spinning icon
+                                    val infiniteTransition = rememberInfiniteTransition()
+                                    val rotation by infiniteTransition.animateFloat(
+                                        initialValue = 0f,
+                                        targetValue = 360f,
+                                        animationSpec = infiniteRepeatable(
+                                            animation = tween(1000, easing = LinearEasing)
+                                        )
+                                    )
+
+                                    Icon(
+                                        imageVector = Icons.Default.Sync,
+                                        contentDescription = "Processing",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .graphicsLayer { rotationZ = rotation }
+                                    )
+
+                                    Spacer(modifier = Modifier.width(4.dp))
+
+                                    Text(
+                                        text = "Processing... $progress%",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+
+                                // Progress bar
+                                Spacer(modifier = Modifier.height(4.dp))
+                                LinearProgressIndicator(
+                                    progress = progress / 100f,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(2.dp)
+                                        .clip(RoundedCornerShape(1.dp)),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
                                 )
                             }
                         }

@@ -13,6 +13,7 @@ class SentenceEmbeddingProvider(private val context: Context) {
 
     private var sentenceEmbedding: SentenceEmbedding? = null
     private var isInitialized = false
+    private val initLock = Any() // Lock for thread-safe initialization
 
     init {
         // Don't load eagerly anymore - load on demand
@@ -20,14 +21,22 @@ class SentenceEmbeddingProvider(private val context: Context) {
     }
 
     fun ensureInitialized() {
+        // Double-checked locking pattern for thread safety
         if (!isInitialized || sentenceEmbedding == null) {
-            android.util.Log.d("SentenceEmbeddingProvider", "Initializing ONNX model on demand")
-            sentenceEmbedding = SentenceEmbedding()
-            val modelBytes = context.assets.open("all-MiniLM-L6-V2.onnx").use { it.readBytes() }
-            val tokenizerBytes = copyToLocalStorage()
-            runBlocking(Dispatchers.IO) { sentenceEmbedding!!.init(modelBytes, tokenizerBytes) }
-            isInitialized = true
-            android.util.Log.d("SentenceEmbeddingProvider", "ONNX model initialized successfully")
+            synchronized(initLock) {
+                // Check again inside synchronized block
+                if (!isInitialized || sentenceEmbedding == null) {
+                    android.util.Log.d("SentenceEmbeddingProvider", "Initializing ONNX model on demand (thread: ${Thread.currentThread().name})")
+                    sentenceEmbedding = SentenceEmbedding()
+                    val modelBytes = context.assets.open("all-MiniLM-L6-V2.onnx").use { it.readBytes() }
+                    val tokenizerBytes = copyToLocalStorage()
+                    runBlocking(Dispatchers.IO) { sentenceEmbedding!!.init(modelBytes, tokenizerBytes) }
+                    isInitialized = true
+                    android.util.Log.d("SentenceEmbeddingProvider", "ONNX model initialized successfully")
+                } else {
+                    android.util.Log.d("SentenceEmbeddingProvider", "Model already initialized, skipping (thread: ${Thread.currentThread().name})")
+                }
+            }
         }
     }
 
@@ -39,13 +48,15 @@ class SentenceEmbeddingProvider(private val context: Context) {
     }
 
     fun release() {
-        // Just null the reference, let finalize() in SentenceEmbedding handle cleanup
-        android.util.Log.d("SentenceEmbeddingProvider", "Releasing ONNX model (initialized: $isInitialized)")
-        sentenceEmbedding = null
-        isInitialized = false
-        System.gc() // Suggest garbage collection
-        System.runFinalization() // Force finalizers to run
-        android.util.Log.d("SentenceEmbeddingProvider", "ONNX model released, finalizers triggered")
+        synchronized(initLock) {
+            // Just null the reference, let finalize() in SentenceEmbedding handle cleanup
+            android.util.Log.d("SentenceEmbeddingProvider", "Releasing ONNX model (initialized: $isInitialized)")
+            sentenceEmbedding = null
+            isInitialized = false
+            System.gc() // Suggest garbage collection
+            System.runFinalization() // Force finalizers to run
+            android.util.Log.d("SentenceEmbeddingProvider", "ONNX model released, finalizers triggered")
+        }
     }
 
     private fun copyToLocalStorage(): ByteArray {

@@ -738,6 +738,11 @@ private fun ModernSendButton(
     ) {
         FloatingActionButton(
             onClick = {
+                // Prevent clicks while generating response
+                if (isGeneratingResponse) {
+                    return@FloatingActionButton
+                }
+
                 keyboardController?.hide()
                 if (!chatViewModel.checkNumDocuments()) {
                     Toast.makeText(
@@ -747,7 +752,7 @@ private fun ModernSendButton(
                     ).show()
                     return@FloatingActionButton
                 }
-                
+
                 if (questionText.trim().isEmpty()) {
                     Toast.makeText(
                         context,
@@ -756,7 +761,7 @@ private fun ModernSendButton(
                     ).show()
                     return@FloatingActionButton
                 }
-                
+
                 try {
                     chatViewModel.getAnswer(questionText)
                     onQuestionSent()
@@ -770,7 +775,8 @@ private fun ModernSendButton(
             },
             modifier = Modifier
                 .scale(scale)
-                .graphicsLayer { rotationZ = rotation },
+                .graphicsLayer { rotationZ = rotation }
+                .alpha(if (isGeneratingResponse) 0.5f else 1f),  // Visual feedback when disabled
             containerColor = if (isGeneratingResponse) {
                 Secondary
             } else {
