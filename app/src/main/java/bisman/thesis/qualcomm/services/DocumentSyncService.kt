@@ -519,6 +519,7 @@ class DocumentSyncService : Service(), KoinComponent {
                     document.docText = text
                     document.fileLastModified = file.lastModified()
                     document.fileSize = file.length()
+                    document.docAddedTime = System.currentTimeMillis() // Update timestamp for UI
                     document.paragraphHashes = ContentHasher.hashParagraphs(newParagraphs)
                     documentsDB.addDocument(document) // This will update existing
 
@@ -527,6 +528,7 @@ class DocumentSyncService : Service(), KoinComponent {
                     Log.d(TAG, "No content changes detected in ${file.name}, updating metadata only")
                     document.fileLastModified = file.lastModified()
                     document.fileSize = file.length()
+                    document.docAddedTime = System.currentTimeMillis() // Update timestamp for UI
                     documentsDB.addDocument(document)
                 }
             }

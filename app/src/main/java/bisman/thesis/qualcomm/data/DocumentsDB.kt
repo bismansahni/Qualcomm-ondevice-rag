@@ -28,8 +28,17 @@ class DocumentsDB {
     }
 
     fun addDocument(document: Document): Long {
+        // Check if document with same file path already exists
+        val existingDoc = getDocumentByFilePath(document.docFilePath)
+        if (existingDoc != null && document.docId == 0L) {
+            // If we're trying to add a new document (docId=0) but one already exists,
+            // update the existing one instead
+            document.docId = existingDoc.docId
+            Log.d(TAG, "Updating existing document instead of creating duplicate: ${document.docFileName}")
+        }
+
         val id = docsBox.put(document)
-        Log.d(TAG, "Added document: ${document.docFileName} with ID: $id")
+        Log.d(TAG, "Added/Updated document: ${document.docFileName} with ID: $id")
         Log.d(TAG, "Total documents now: ${docsBox.count()}")
         return id
     }
@@ -88,7 +97,9 @@ class DocumentsDB {
         doc?.let {
             it.fileLastModified = lastModified
             it.fileSize = fileSize
+            it.docAddedTime = System.currentTimeMillis() // Update the "last processed" time
             docsBox.put(it)
+            Log.d(TAG, "Updated metadata for document: ${it.docFileName}")
         }
     }
 }

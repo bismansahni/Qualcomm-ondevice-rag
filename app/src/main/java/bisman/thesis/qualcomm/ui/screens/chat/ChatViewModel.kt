@@ -41,6 +41,7 @@ class ChatViewModel(
     val retrievedContextListState: StateFlow<List<RetrievedContext>> = _retrievedContextListState
 
     private var genieWrapper: GenieWrapper? = null
+    private val genieLock = Any() // Lock for thread-safe Genie access
 
     init {
         // Try to clean any residual state first
@@ -124,57 +125,61 @@ class ChatViewModel(
 
             CoroutineScope(Dispatchers.IO).launch {
                 Log.d(TAG, "Launching coroutine for model inference...")
-                if (genieWrapper != null) {
-                    Log.d(TAG, "GenieWrapper is ready, sending prompt...")
-                    Log.d(TAG, "Prompt text length: ${promptText.length}")
-                    
-                    val inferenceStartTime = System.currentTimeMillis()
 
-                    genieWrapper!!.getResponseForPrompt(
-                        promptText,
-                        object : StringCallback {
-                            override fun onNewString(str: String?) {
-                                str?.let { token ->
-                                    tokenCount++
+                // Synchronize access to GenieWrapper to prevent concurrent calls
+                synchronized(genieLock) {
+                    if (genieWrapper != null) {
+                        Log.d(TAG, "GenieWrapper is ready, sending prompt... (thread: ${Thread.currentThread().name})")
+                        Log.d(TAG, "Prompt text length: ${promptText.length}")
 
-                                    // Track Time to First Token
-                                    if (!firstTokenReceived) {
-                                        firstTokenReceived = true
-                                        ttftTime = System.currentTimeMillis() - inferenceStartTime
-                                        Log.i(TAG, "🚀 Time to First Token (TTFT): ${ttftTime}ms")
-                                    }
+                        val inferenceStartTime = System.currentTimeMillis()
 
-                                    Log.d(TAG, "Token #$tokenCount: '${token}' (${token.length} chars)")
+                        genieWrapper!!.getResponseForPrompt(
+                            promptText,
+                            object : StringCallback {
+                                override fun onNewString(str: String?) {
+                                    str?.let { token ->
+                                        tokenCount++
 
-                                    // Update on Main thread for immediate UI update
-                                    CoroutineScope(Dispatchers.Main).launch {
-                                        val currentResponse = _responseState.value
-                                        val newResponse = currentResponse + token
-                                        _responseState.value = newResponse
+                                        // Track Time to First Token
+                                        if (!firstTokenReceived) {
+                                            firstTokenReceived = true
+                                            ttftTime = System.currentTimeMillis() - inferenceStartTime
+                                            Log.i(TAG, "🚀 Time to First Token (TTFT): ${ttftTime}ms")
+                                        }
+
+                                        Log.d(TAG, "Token #$tokenCount: '${token}' (${token.length} chars)")
+
+                                        // Update on Main thread for immediate UI update
+                                        CoroutineScope(Dispatchers.Main).launch {
+                                            val currentResponse = _responseState.value
+                                            val newResponse = currentResponse + token
+                                            _responseState.value = newResponse
+                                        }
                                     }
                                 }
                             }
-                        }
-                    )
+                        )
 
-                    val totalInferenceTime = System.currentTimeMillis() - inferenceStartTime
-                    val totalTime = System.currentTimeMillis() - startTime
+                        val totalInferenceTime = System.currentTimeMillis() - inferenceStartTime
+                        val totalTime = System.currentTimeMillis() - startTime
 
-                    Log.i(TAG, "═══════════════════════════════════════")
-                    Log.i(TAG, "📊 PERFORMANCE METRICS:")
-                    Log.i(TAG, "⏱️ RAG Retrieval: ${ragTime}ms")
-                    Log.i(TAG, "🚀 Time to First Token: ${ttftTime}ms")
-                    Log.i(TAG, "⚡ Total Inference: ${totalInferenceTime}ms")
-                    Log.i(TAG, "📝 Total Tokens: $tokenCount")
-                    Log.i(TAG, "💨 Tokens/Second: ${if (totalInferenceTime > 0) (tokenCount * 1000.0 / totalInferenceTime).format(2) else "N/A"}")
-                    Log.i(TAG, "⏰ Total Time: ${totalTime}ms")
-                    Log.i(TAG, "═══════════════════════════════════════")
+                        Log.i(TAG, "═══════════════════════════════════════")
+                        Log.i(TAG, "📊 PERFORMANCE METRICS:")
+                        Log.i(TAG, "⏱️ RAG Retrieval: ${ragTime}ms")
+                        Log.i(TAG, "🚀 Time to First Token: ${ttftTime}ms")
+                        Log.i(TAG, "⚡ Total Inference: ${totalInferenceTime}ms")
+                        Log.i(TAG, "📝 Total Tokens: $tokenCount")
+                        Log.i(TAG, "💨 Tokens/Second: ${if (totalInferenceTime > 0) (tokenCount * 1000.0 / totalInferenceTime).format(2) else "N/A"}")
+                        Log.i(TAG, "⏰ Total Time: ${totalTime}ms")
+                        Log.i(TAG, "═══════════════════════════════════════")
 
-                    _isGeneratingResponseState.value = false
-                } else {
-                    Log.e(TAG, "GenieWrapper is null")
-                    _responseState.value = "Error: Model not initialized. Please restart the app."
-                    _isGeneratingResponseState.value = false
+                        _isGeneratingResponseState.value = false
+                    } else {
+                        Log.e(TAG, "GenieWrapper is null")
+                        _responseState.value = "Error: Model not initialized. Please restart the app."
+                        _isGeneratingResponseState.value = false
+                    }
                 }
             }
         } catch (e: Exception) {
