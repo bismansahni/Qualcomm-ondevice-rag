@@ -104,17 +104,23 @@ class DocsViewModel(
         val chunks = WhiteSpaceSplitter.createChunks(text, chunkSize = 500, chunkOverlap = 50)
         val size = chunks.size
         Log.d("DocsViewModel", "Created $size chunks")
-        chunks.forEachIndexed { index, s ->
-            val embedding = sentenceEncoder.encodeText(s)
-            chunksDB.addChunk(
+
+        // Collect all chunks for batch insertion
+        val chunksToInsert = mutableListOf<Chunk>()
+        chunks.forEach { chunkText ->
+            val embedding = sentenceEncoder.encodeText(chunkText)
+            chunksToInsert.add(
                 Chunk(
                     docId = newDocId,
                     docFileName = fileName,
-                    chunkData = s,
+                    chunkData = chunkText,
                     chunkEmbedding = embedding,
                 ),
             )
         }
+
+        // Batch insert all chunks (in batches of 30)
+        chunksDB.addChunksBatch(chunksToInsert)
         Log.d("DocsViewModel", "Successfully added document and chunks for: $fileName")
     }
 
