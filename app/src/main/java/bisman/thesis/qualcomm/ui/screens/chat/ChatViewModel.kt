@@ -13,6 +13,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import android.util.Log
 
@@ -41,7 +43,7 @@ class ChatViewModel(
     val retrievedContextListState: StateFlow<List<RetrievedContext>> = _retrievedContextListState
 
     private var genieWrapper: GenieWrapper? = null
-    private val genieLock = Any() // Lock for thread-safe Genie access
+    private val genieMutex = Mutex() // Coroutine-friendly lock for thread-safe Genie access
 
     init {
         // Try to clean any residual state first
@@ -96,38 +98,44 @@ class ChatViewModel(
         _retrievedContextListState.value = emptyList()
 
         try {
-            var jointContext = ""
-            val retrievedContextList = ArrayList<RetrievedContext>()
-            
-            // Check if we have documents to search
-            if (documentsDB.getDocsCount() > 0) {
-                val ragStartTime = System.currentTimeMillis()
-                val queryEmbedding = sentenceEncoder.encodeText(query)
-
-                Log.d(TAG, "Getting similar chunks from database...")
-                chunksDB.getSimilarChunks(queryEmbedding, n = 3).forEach {
-                    jointContext += " " + it.second.chunkData
-                    retrievedContextList.add(RetrievedContext(it.second.docFileName, it.second.chunkData))
-                    Log.d(TAG, "Retrieved chunk from: ${it.second.docFileName}, size: ${it.second.chunkData.length}")
-                }
-                _retrievedContextListState.value = retrievedContextList
-                ragTime = System.currentTimeMillis() - ragStartTime
-                Log.i(TAG, "⏱️ RAG Retrieval Time: ${ragTime}ms")
-            }
-            
-            Log.d(TAG, "Total context length: ${jointContext.length}")
-            
-            val promptText = if (jointContext.isNotEmpty()) {
-                "Context: $jointContext\n\nQuery: $query"
-            } else {
-                query
-            }
-
             CoroutineScope(Dispatchers.IO).launch {
-                Log.d(TAG, "Launching coroutine for model inference...")
+                Log.d(TAG, "Launching coroutine for RAG and inference...")
 
-                // Synchronize access to GenieWrapper to prevent concurrent calls
-                synchronized(genieLock) {
+                val retrievedContextList = ArrayList<RetrievedContext>()
+                var jointContext = ""
+
+                // Check if we have documents to search
+                if (documentsDB.getDocsCount() > 0) {
+                    val ragStartTime = System.currentTimeMillis()
+                    val queryEmbedding = sentenceEncoder.encodeText(query)
+
+                    Log.d(TAG, "Getting similar chunks from database...")
+                    val similarChunks = chunksDB.getSimilarChunks(queryEmbedding, n = 3)
+
+                    // Build context and retrieved list
+                    similarChunks.forEach {
+                        retrievedContextList.add(RetrievedContext(it.second.docFileName, it.second.chunkData))
+                        Log.d(TAG, "Retrieved chunk from: ${it.second.docFileName}, size: ${it.second.chunkData.length}")
+                    }
+
+                    // Efficiently concatenate all chunks
+                    jointContext = similarChunks.joinToString(" ") { it.second.chunkData }
+
+                    _retrievedContextListState.value = retrievedContextList
+                    ragTime = System.currentTimeMillis() - ragStartTime
+                    Log.i(TAG, "⏱️ RAG Retrieval Time: ${ragTime}ms")
+                }
+
+                Log.d(TAG, "Total context length: ${jointContext.length}")
+
+                val promptText = if (jointContext.isNotEmpty()) {
+                    "Context: $jointContext\n\nQuery: $query"
+                } else {
+                    query
+                }
+
+                // Synchronize access to GenieWrapper to prevent concurrent calls (coroutine-friendly)
+                genieMutex.withLock {
                     if (genieWrapper != null) {
                         Log.d(TAG, "GenieWrapper is ready, sending prompt... (thread: ${Thread.currentThread().name})")
                         Log.d(TAG, "Prompt text length: ${promptText.length}")
@@ -150,12 +158,10 @@ class ChatViewModel(
 
                                         Log.d(TAG, "Token #$tokenCount: '${token}' (${token.length} chars)")
 
-                                        // Update on Main thread for immediate UI update
-                                        CoroutineScope(Dispatchers.Main).launch {
-                                            val currentResponse = _responseState.value
-                                            val newResponse = currentResponse + token
-                                            _responseState.value = newResponse
-                                        }
+                                        // Update StateFlow directly (thread-safe)
+                                        val currentResponse = _responseState.value
+                                        val newResponse = currentResponse + token
+                                        _responseState.value = newResponse
                                     }
                                 }
                             }

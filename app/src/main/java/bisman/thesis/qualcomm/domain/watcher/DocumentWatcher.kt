@@ -16,6 +16,8 @@ import bisman.thesis.qualcomm.domain.readers.Readers
 import bisman.thesis.qualcomm.ui.screens.docs.DocsViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -31,6 +33,9 @@ class DocumentWatcher(
         private const val PREFS_NAME = "DocQAPrefs"
         private const val PREF_WATCHED_FOLDER = "watched_folder_path"
     }
+
+    // Lifecycle-aware coroutine scope for all DocumentWatcher operations
+    private val watcherScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private var fileObserver: FileObserver? = null
     private val _isWatching = MutableStateFlow(false)
@@ -97,7 +102,7 @@ class DocumentWatcher(
         }
 
         // Sync existing files with database on startup
-        CoroutineScope(Dispatchers.IO).launch {
+        watcherScope.launch {
             syncFolderWithDatabase(watchedFolder)
         }
 
@@ -111,7 +116,7 @@ class DocumentWatcher(
                         CREATE, MOVED_TO -> {
                             if (isValidDocument(file)) {
                                 // Check database instead of memory set
-                                CoroutineScope(Dispatchers.IO).launch {
+                                watcherScope.launch {
                                     val exists = docsViewModel.documentsDB.documentExistsWithPath(file.absolutePath)
                                     if (!exists) {
                                         Log.d(TAG, "Processing new document: ${file.name}")
@@ -149,7 +154,7 @@ class DocumentWatcher(
     }
 
     private fun processDocument(file: File) {
-        CoroutineScope(Dispatchers.IO).launch {
+        watcherScope.launch {
             try {
                 _processingStatus.value = ProcessingStatus.Processing(file.name)
                 _lastProcessedFile.value = file.name
@@ -227,13 +232,13 @@ class DocumentWatcher(
     }
     
     private fun handleFileDeleted(file: File) {
-        CoroutineScope(Dispatchers.IO).launch {
+        watcherScope.launch {
             try {
                 _processingStatus.value = ProcessingStatus.Processing("Removing ${file.name}")
-                
+
                 // Remove from database
                 docsViewModel.removeDocumentByFilePath(file.absolutePath)
-                
+
                 _processingStatus.value = ProcessingStatus.Success("Removed ${file.name}")
                 Log.d(TAG, "Successfully removed document: ${file.name}")
             } catch (e: Exception) {
@@ -241,5 +246,12 @@ class DocumentWatcher(
                 Log.e(TAG, "Error removing document: ${file.name}", e)
             }
         }
+    }
+
+    // Cleanup function to cancel all coroutines
+    fun cleanup() {
+        stopWatching()
+        watcherScope.cancel()
+        Log.d(TAG, "DocumentWatcher cleanup complete, all coroutines cancelled")
     }
 }
