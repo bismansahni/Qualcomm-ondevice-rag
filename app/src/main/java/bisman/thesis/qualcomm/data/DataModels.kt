@@ -12,7 +12,7 @@ data class Chunk(
     var docFileName: String = "",
     var chunkData: String = "",
     @HnswIndex(dimensions = 384) var chunkEmbedding: FloatArray = floatArrayOf(),
-    var paragraphIndex: Int = 0, // Track which paragraph this chunk belongs to
+    @Index var paragraphIndex: Int = 0, // Track which paragraph this chunk belongs to - indexed for removeChunksByParagraph queries
 )
 
 @Entity
@@ -21,7 +21,7 @@ data class Document(
     var docText: String = "",
     var docFileName: String = "",
     var docAddedTime: Long = 0,
-    var docFilePath: String = "",
+    @Index var docFilePath: String = "", // Indexed for getDocumentByFilePath and documentExistsWithPath lookups
     var fileLastModified: Long = 0,
     var fileSize: Long = 0,
     var paragraphHashes: String = "", // JSON array of paragraph hashes
