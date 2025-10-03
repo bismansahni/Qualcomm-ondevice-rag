@@ -27,6 +27,17 @@ class ChunksDB {
         Log.d(TAG, "Chunk added successfully, total chunks: ${chunksBox.count()}")
     }
 
+    fun addChunksBatch(chunks: List<Chunk>, batchSize: Int = 30) {
+        Log.d(TAG, "Batch adding ${chunks.size} chunks with batch size: $batchSize")
+
+        chunks.chunked(batchSize).forEachIndexed { batchIndex, batch ->
+            chunksBox.put(batch)
+            Log.d(TAG, "Batch ${batchIndex + 1} inserted: ${batch.size} chunks")
+        }
+
+        Log.d(TAG, "Batch add complete, total chunks: ${chunksBox.count()}")
+    }
+
     fun getSimilarChunks(
         queryEmbedding: FloatArray,
         n: Int = 5,

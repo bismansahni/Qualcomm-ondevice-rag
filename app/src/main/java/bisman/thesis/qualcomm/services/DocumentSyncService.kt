@@ -412,9 +412,11 @@ class DocumentSyncService : Service(), KoinComponent {
                 )
 
                 val totalChunks = chunksWithParagraphs.size
+                val chunksToInsert = mutableListOf<Chunk>()
+
                 chunksWithParagraphs.forEachIndexed { index, chunkWithPara ->
                     val embedding = sentenceEncoder.encodeText(chunkWithPara.text)
-                    chunksDB.addChunk(
+                    chunksToInsert.add(
                         Chunk(
                             docId = docId,
                             docFileName = file.name,
@@ -424,9 +426,13 @@ class DocumentSyncService : Service(), KoinComponent {
                         )
                     )
                     // Update progress as chunks are processed
-                    val progress = 40 + ((index + 1) * 60 / totalChunks)
+                    val progress = 40 + ((index + 1) * 50 / totalChunks)
                     DocumentProcessingState.updateProgress(file.absolutePath, progress)
                 }
+
+                // Batch insert all chunks (in batches of 30)
+                chunksDB.addChunksBatch(chunksToInsert)
+                DocumentProcessingState.updateProgress(file.absolutePath, 100)
 
                 Log.d(TAG, "Successfully processed document: ${file.name} with ${chunksWithParagraphs.size} chunks")
                 DocumentProcessingState.finishProcessing(file.absolutePath)
@@ -498,9 +504,11 @@ class DocumentSyncService : Service(), KoinComponent {
                         Log.d(TAG, "Processing ${chunksToAdd.size} chunks from ${paragraphsToProcess.size} changed paragraphs")
 
                         val totalChunks = chunksToAdd.size
+                        val chunksToInsert = mutableListOf<Chunk>()
+
                         chunksToAdd.forEachIndexed { index, chunkWithPara ->
                             val embedding = sentenceEncoder.encodeText(chunkWithPara.text)
-                            chunksDB.addChunk(
+                            chunksToInsert.add(
                                 Chunk(
                                     docId = document.docId,
                                     docFileName = file.name,
@@ -510,9 +518,13 @@ class DocumentSyncService : Service(), KoinComponent {
                                 )
                             )
                             // Update progress as chunks are processed
-                            val progress = 40 + ((index + 1) * 60 / totalChunks.coerceAtLeast(1))
+                            val progress = 40 + ((index + 1) * 50 / totalChunks.coerceAtLeast(1))
                             DocumentProcessingState.updateProgress(file.absolutePath, progress)
                         }
+
+                        // Batch insert all chunks (in batches of 30)
+                        chunksDB.addChunksBatch(chunksToInsert)
+                        DocumentProcessingState.updateProgress(file.absolutePath, 100)
                     }
 
                     // Update document with new text and hashes
