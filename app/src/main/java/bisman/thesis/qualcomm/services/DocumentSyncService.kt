@@ -28,6 +28,39 @@ import java.io.File
 import java.util.Timer
 import java.util.TimerTask
 
+/**
+ * Foreground service for continuous document synchronization and processing.
+ *
+ * This service runs persistently in the background to monitor a folder for document changes:
+ * - **Real-time Monitoring**: Uses FileObserver to detect file system events instantly
+ * - **Periodic Sync**: Runs full folder sync every minute to catch missed events
+ * - **Incremental Updates**: Only re-processes changed paragraphs in modified documents
+ * - **Persistent Operation**: Runs as foreground service with notification
+ * - **Automatic Startup**: Can be configured to restart on device boot
+ *
+ * Processing Pipeline for New/Modified Documents:
+ * 1. Detect file change (CREATE, MODIFY, DELETE events)
+ * 2. Read and extract text content
+ * 3. For new documents: Create chunks, generate embeddings, store in database
+ * 4. For modified documents: Compare paragraph hashes, re-process only changed paragraphs
+ * 5. Update notification with sync status
+ *
+ * Resource Management:
+ * - Lazily initializes embedding model only when documents need processing
+ * - Releases embedding model after processing to free DSP/NPU resources
+ * - Uses coroutines for non-blocking background operations
+ * - Prevents concurrent processing with isProcessing flag
+ *
+ * Notification Features:
+ * - Shows watched folder name
+ * - Displays processing status and last sync time
+ * - Provides "Stop" action to terminate service
+ * - Low priority, non-intrusive notification
+ *
+ * @see DocumentWatcher for the ViewModel-scoped version used in UI
+ * @see BootReceiver for automatic service restart on boot
+ * @see ContentHasher for incremental update logic
+ */
 class DocumentSyncService : Service(), KoinComponent {
     companion object {
         private const val TAG = "DocumentSyncService"
@@ -35,8 +68,15 @@ class DocumentSyncService : Service(), KoinComponent {
         private const val NOTIFICATION_ID = 1001
         private const val PREFS_NAME = "DocQAPrefs"
         private const val PREF_WATCHED_FOLDER = "watched_folder_path"
+        /** Interval for periodic folder synchronization in milliseconds */
         private const val SYNC_INTERVAL = 60000L // 1 minute
-        
+
+        /**
+         * Checks if the DocumentSyncService is currently running.
+         *
+         * @param context Android context
+         * @return true if service is running, false otherwise
+         */
         fun isRunning(context: Context): Boolean {
             val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
             return manager.getRunningServices(Integer.MAX_VALUE)

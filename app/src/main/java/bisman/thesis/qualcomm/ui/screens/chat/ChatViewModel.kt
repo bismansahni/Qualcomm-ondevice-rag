@@ -18,33 +18,85 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import android.util.Log
 
+/**
+ * ViewModel for the Chat screen implementing RAG (Retrieval Augmented Generation) functionality.
+ *
+ * This ViewModel coordinates between multiple components to provide document-aware chat:
+ * - **RAG Pipeline**: Retrieves relevant document chunks based on query embeddings
+ * - **LLM Integration**: Manages Qualcomm Genie LLM for on-device inference
+ * - **State Management**: Exposes UI state via StateFlows for Compose integration
+ * - **Performance Tracking**: Logs detailed metrics for RAG retrieval and inference
+ *
+ * Architecture:
+ * 1. User submits query
+ * 2. Query is embedded using sentence transformer
+ * 3. Top-K similar chunks are retrieved from vector database
+ * 4. Retrieved context is concatenated with query
+ * 5. Enhanced prompt is sent to LLM for streaming response
+ *
+ * Performance Metrics Tracked:
+ * - RAG retrieval time
+ * - Time to First Token (TTFT)
+ * - Total inference time
+ * - Tokens per second
+ *
+ * @param documentsDB Repository for accessing stored documents
+ * @param chunksDB Repository for vector similarity search on document chunks
+ * @param sentenceEncoder Provider for generating text embeddings
+ *
+ * @see GenieWrapper for LLM inference
+ * @see SentenceEmbeddingProvider for embedding generation
+ */
 class ChatViewModel(
     private val documentsDB: DocumentsDB,
     private val chunksDB: ChunksDB,
     private val sentenceEncoder: SentenceEmbeddingProvider,
 ) : ViewModel() {
 
+    /** Helper extension to format doubles with specified decimal places */
     private fun Double.format(digits: Int) = "%.${digits}f".format(this)
-    
+
     companion object {
         private const val TAG = "ChatViewModel"
     }
     
+    /** Mutable state for the current user question/query */
     private val _questionState = MutableStateFlow("")
+    /** Exposed immutable state for the current user question */
     val questionState: StateFlow<String> = _questionState
 
+    /** Mutable state for the LLM's streaming response */
     private val _responseState = MutableStateFlow("")
+    /** Exposed immutable state for the LLM's response (updated token by token) */
     val responseState: StateFlow<String> = _responseState
 
+    /** Mutable state tracking whether response generation is in progress */
     private val _isGeneratingResponseState = MutableStateFlow(false)
+    /** Exposed immutable state for response generation status */
     val isGeneratingResponseState: StateFlow<Boolean> = _isGeneratingResponseState
 
+    /** Mutable state for the list of retrieved document chunks used in RAG */
     private val _retrievedContextListState = MutableStateFlow(emptyList<RetrievedContext>())
+    /** Exposed immutable state for retrieved context (for UI display) */
     val retrievedContextListState: StateFlow<List<RetrievedContext>> = _retrievedContextListState
 
+    /** Wrapper instance for Qualcomm Genie LLM inference */
     private var genieWrapper: GenieWrapper? = null
-    private val genieMutex = Mutex() // Coroutine-friendly lock for thread-safe Genie access
 
+    /** Mutex to ensure thread-safe access to GenieWrapper (prevents concurrent inference calls) */
+    private val genieMutex = Mutex()
+
+    /**
+     * Initializes the ViewModel by loading the LLM model.
+     *
+     * Initialization sequence:
+     * 1. Cleans up any residual embedding model state
+     * 2. Loads Qualcomm Genie LLM from model directory
+     * 3. Re-initializes embeddings after LLM load
+     *
+     * This eager initialization ensures the model is ready when the user first interacts
+     * with the chat screen, avoiding delays on first query.
+     */
     init {
         // Try to clean any residual state first
         try {
@@ -82,6 +134,28 @@ class ChatViewModel(
         }
     }
 
+    /**
+     * Processes a user query using RAG and generates a response via LLM.
+     *
+     * This is the main entry point for the chat functionality. It orchestrates:
+     * 1. **RAG Retrieval**: Encodes query and retrieves top-3 similar chunks from vector DB
+     * 2. **Context Building**: Concatenates retrieved chunks into context string
+     * 3. **Prompt Construction**: Combines context and query into LLM prompt
+     * 4. **Streaming Inference**: Sends prompt to Genie LLM and streams tokens back
+     * 5. **Performance Logging**: Tracks and logs detailed timing metrics
+     *
+     * The method updates StateFlows throughout the process to keep the UI in sync.
+     * All heavy operations run on IO dispatcher to avoid blocking the main thread.
+     *
+     * Performance metrics logged:
+     * - RAG retrieval time (embedding generation + vector search)
+     * - Time to First Token (TTFT) - latency before first token appears
+     * - Total inference time
+     * - Tokens per second throughput
+     * - End-to-end total time
+     *
+     * @param query The user's question or prompt
+     */
     fun getAnswer(query: String) {
         Log.d(TAG, "===== getAnswer START =====")
         Log.d(TAG, "Query: $query")
@@ -197,8 +271,22 @@ class ChatViewModel(
         Log.d(TAG, "===== getAnswer END =====")
     }
 
+    /**
+     * Checks if any documents have been added to the database.
+     *
+     * @return true if at least one document exists, false otherwise
+     */
     fun checkNumDocuments(): Boolean = documentsDB.getDocsCount() > 0
 
+    /**
+     * Called when the ViewModel is about to be destroyed.
+     *
+     * Releases all ML resources to free memory and DSP:
+     * - Releases sentence embedding model
+     * - Nullifies GenieWrapper to allow garbage collection
+     *
+     * This ensures clean resource cleanup and prevents memory leaks from native models.
+     */
     override fun onCleared() {
         super.onCleared()
         // Release ONNX model to free DSP for next app launch

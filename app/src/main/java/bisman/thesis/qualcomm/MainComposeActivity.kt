@@ -26,16 +26,55 @@ import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.Paths
 
+/**
+ * Main activity for the Qualcomm Thesis Chat Application using Jetpack Compose.
+ *
+ * This activity serves as the entry point for the Compose-based UI and manages:
+ * - Qualcomm Neural Network (QNN) library path configuration
+ * - Model path initialization for on-device LLM and embeddings
+ * - Navigation between Chat and Document Management screens
+ * - ML model lifecycle management to prevent memory leaks
+ *
+ * The activity handles device-specific configurations based on Qualcomm SoC model
+ * (Snapdragon 8 Elite, 8 Gen 3, or 8 Gen 2) to optimize HTP (Hexagon Tensor Processor) usage.
+ *
+ * Key responsibilities:
+ * - Configure native library paths for Genie/QNN runtime
+ * - Initialize model directories and HTP configuration
+ * - Manage application navigation with animated transitions
+ * - Handle model cleanup when app goes to background or is destroyed
+ *
+ * @see ChatScreen for the main chat interface
+ * @see DocsScreen for document management interface
+ */
 class MainComposeActivity : ComponentActivity() {
-    
+
     companion object {
+        /** Tag for logging activity lifecycle and initialization events */
         const val TAG = "MainComposeActivity"
+
+        /** Directory path where LLM models are stored in external cache */
         @JvmField
         var modelDirectory: String? = null
+
+        /** Path to HTP (Hexagon Tensor Processor) configuration JSON file for the device's SoC */
         @JvmField
         var htpConfigPath: String? = null
     }
-    
+
+    /**
+     * Called when the activity is starting.
+     *
+     * Initialization sequence:
+     * 1. Sets up native library paths for Qualcomm QNN SDK (ADSP_LIBRARY_PATH, LD_LIBRARY_PATH)
+     * 2. Initializes model directory and HTP config paths if null (app restart scenario)
+     * 3. Enables edge-to-edge display
+     * 4. Sets up Compose content with theme and navigation
+     *
+     * @param savedInstanceState If the activity is being re-initialized after previously being
+     *                           shut down then this Bundle contains the data it most recently
+     *                           supplied. Note: Otherwise it is null.
+     */
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
@@ -69,6 +108,13 @@ class MainComposeActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Called when the activity is no longer visible to the user.
+     *
+     * Releases ML models to free memory when the app goes to the background. This ensures
+     * proper cleanup even if ViewModels are not destroyed, preventing memory pressure and
+     * potential ANRs (Application Not Responding) when the app is in the background.
+     */
     override fun onStop() {
         super.onStop()
         Log.d(TAG, "onStop called - releasing models")
@@ -77,6 +123,13 @@ class MainComposeActivity : ComponentActivity() {
         (application as? ChatApplication)?.releaseModels()
     }
 
+    /**
+     * Performs final cleanup before the activity is destroyed.
+     *
+     * If the activity is finishing (user closed the app), this method forcefully terminates
+     * the process to ensure a completely fresh start on next launch. This prevents issues
+     * with cached native model state and ensures clean initialization of QNN runtime.
+     */
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "onDestroy called - isFinishing: $isFinishing")
@@ -90,6 +143,19 @@ class MainComposeActivity : ComponentActivity() {
     }
 }
 
+/**
+ * Defines the navigation graph for the application using Jetpack Compose Navigation.
+ *
+ * This composable sets up a [NavHost] with two destinations:
+ * - "chat": The main chat interface with RAG-based document Q&A
+ * - "docs": Document management screen for uploading and managing files
+ *
+ * Navigation transitions use slide animations (400ms duration, FastOutSlowInEasing) to provide
+ * smooth visual feedback when moving between screens.
+ *
+ * @see ChatScreen for the chat destination
+ * @see DocsScreen for the documents destination
+ */
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun AppNavigation() {
@@ -142,6 +208,24 @@ fun AppNavigation() {
     }
 }
 
+/**
+ * Initializes model directory paths and HTP configuration based on the device's SoC model.
+ *
+ * This extension function determines the correct HTP (Hexagon Tensor Processor) configuration
+ * for the device's Qualcomm SoC and sets up paths for:
+ * - LLM models directory (external cache/models/llm)
+ * - HTP config JSON file specific to the device's Snapdragon generation
+ *
+ * Supported SoC models:
+ * - SM8750: Snapdragon 8 Elite
+ * - SM8650: Snapdragon 8 Gen 3
+ * - QCS8550: Snapdragon 8 Gen 2
+ *
+ * Falls back to Snapdragon 8 Gen 3 config for unsupported devices.
+ *
+ * @receiver ComponentActivity The activity context used to access external cache directory
+ * @throws Exception if path initialization fails
+ */
 private fun ComponentActivity.initializeModelPaths() {
     try {
         // Get SoC model to determine HTP config
@@ -150,7 +234,7 @@ private fun ComponentActivity.initializeModelPaths() {
             "SM8650" to "qualcomm-snapdragon-8-gen3.json",
             "QCS8550" to "qualcomm-snapdragon-8-gen2.json"
         )
-        
+
         val socModel = android.os.Build.SOC_MODEL
         Log.d(MainComposeActivity.TAG, "Device SoC model: $socModel")
         

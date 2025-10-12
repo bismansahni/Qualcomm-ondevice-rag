@@ -12,11 +12,37 @@ import org.koin.core.component.inject
 import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
 
+/**
+ * Main application class for the Qualcomm Thesis Chat Application.
+ *
+ * This class extends [Application] and implements [KoinComponent] to manage the application lifecycle
+ * and dependency injection framework. It handles the initialization of:
+ * - ObjectBox database for local data persistence
+ * - Koin dependency injection framework
+ * - ML model cleanup and resource management
+ *
+ * The application integrates Qualcomm's on-device AI capabilities with a RAG (Retrieval Augmented Generation)
+ * system for document-based chat interactions.
+ *
+ * @see ObjectBoxStore for database initialization
+ * @see appModule for dependency injection configuration
+ */
 class ChatApplication : Application(), KoinComponent {
     companion object {
+        /** Tag used for logging application lifecycle events */
         private const val TAG = "ChatApplication"
     }
-    
+
+    /**
+     * Called when the application is starting, before any activity, service, or receiver objects
+     * have been created.
+     *
+     * This method performs the following initialization steps:
+     * 1. Initializes ObjectBox database for storing documents and embeddings
+     * 2. Starts Koin dependency injection framework (if not already started)
+     *
+     * @throws Exception if ObjectBox initialization fails
+     */
     override fun onCreate() {
         super.onCreate()
         
@@ -48,6 +74,19 @@ class ChatApplication : Application(), KoinComponent {
         Log.d(TAG, "ChatApplication initialization complete")
     }
 
+    /**
+     * Releases all ML models and performs garbage collection.
+     *
+     * This method is responsible for cleaning up machine learning resources to free memory:
+     * - Releases the sentence embedding model used for vector search
+     * - Triggers garbage collection to reclaim memory
+     * - Forces finalizers to run for complete cleanup
+     *
+     * This method is called when the app is stopping or terminating to ensure proper
+     * resource cleanup and prevent memory leaks from native ML models.
+     *
+     * @see SentenceEmbeddingProvider.release for model-specific cleanup
+     */
     fun releaseModels() {
         try {
             Log.d(TAG, "Releasing models from ChatApplication")
@@ -62,6 +101,14 @@ class ChatApplication : Application(), KoinComponent {
         }
     }
 
+    /**
+     * Called when the application is terminating.
+     *
+     * Note: This callback is never called in production Android systems. It's included
+     * for cleanup purposes during testing and emulator scenarios.
+     *
+     * Ensures all ML models are released before the application terminates.
+     */
     override fun onTerminate() {
         super.onTerminate()
         Log.d(TAG, "ChatApplication onTerminate called")
