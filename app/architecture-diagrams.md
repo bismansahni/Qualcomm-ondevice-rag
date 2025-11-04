@@ -239,6 +239,7 @@ flowchart LR
         Splitter[Text Splitter]
         Hasher[Content Hasher]
         Encoder[Sentence Encoder]
+        LLM[LLM<br/>Phi-3.5-mini]
     end
 
     subgraph Storage
@@ -248,7 +249,6 @@ flowchart LR
     end
 
     subgraph Output
-        Context[Retrieved Context]
         Response[LLM Response]
     end
 
@@ -256,16 +256,16 @@ flowchart LR
     DOCX --> Reader
     Reader --> Splitter
     Splitter --> Hasher
-    Splitter --> Encoder
+    Splitter -->|Document chunks| Encoder
     Hasher --> DocDB
-    Encoder --> VectorIndex
-    Encoder --> ChunkDB
+    Encoder -->|Store embeddings| VectorIndex
+    Encoder -->|Store embeddings| ChunkDB
 
-    Query --> Encoder
-    Encoder --> VectorIndex
-    VectorIndex --> Context
-    Context --> Response
-    Query --> Response
+    Query -->|Encode query| Encoder
+    Encoder -->|Search for similar chunks| VectorIndex
+    VectorIndex -->|Top-3 chunks| LLM
+    Query -->|Original question| LLM
+    LLM --> Response
 ```
 
 ## Key Features
