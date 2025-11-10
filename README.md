@@ -251,17 +251,6 @@ app/src/main/java/bisman/thesis/qualcomm/
 - Stream LLM responses token-by-token
 - Track performance metrics (RAG time, TTFT, tokens/sec)
 
-**Performance Metrics**:
-```kotlin
-// Example output
-RAG Retrieval: 245ms
-Time to First Token: 1000-4000ms
-Total Inference: 3421ms
-Total Tokens: 87
-Tokens/Second: 25.43
-Total Time: 3666ms
-```
-
 **Code Reference**: `ui/screens/chat/ChatViewModel.kt:137-272`
 
 ### 2. DocsViewModel
@@ -410,19 +399,16 @@ User Query
 ### Performance Considerations
 
 **Embedding Generation**:
-- Time: ~50-150ms per query (ONNX on HTP)
 - Cached: Embedding model stays loaded during chat session
 - Released: Automatic cleanup on app background
 
 **Vector Search**:
-- Time: ~20-100ms for 1000s of chunks (HNSW)
 - Complexity: O(log n) approximate nearest neighbor
 - Quality: ef=25 parameter balances speed vs accuracy
 
 **LLM Inference**:
-- TTFT: 1000-4000ms (Time to First Token)
-- Throughput: 15-30 tokens/sec on Snapdragon 8 Gen 3
-- Memory: ~4GB for LLM, shared with system
+- Streams tokens incrementally for responsive UI
+- Memory: Shared with system resources
 
 ---
 
