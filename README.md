@@ -46,7 +46,7 @@ Built using Kotlin, Jetpack Compose, and follows MVVM architecture with Kotlin C
 
 ## Demo
 
-https://github.com/user-attachments/assets/demo.mp4
+[Watch Demo Video](https://arizonastateu-my.sharepoint.com/:v:/g/personal/bsahni_sundevils_asu_edu/Edme73KiQBFKi4IfY2v2tCYBjQanLpcS6Isiw0Ew8uATkw?e=AEcBHI)
 
 *The video demonstrates automatic folder monitoring, document processing, and conversational Q&A with on-device RAG.*
 
