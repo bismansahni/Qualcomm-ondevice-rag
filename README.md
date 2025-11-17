@@ -1,6 +1,56 @@
 # Qualcomm On-Device RAG Chat Application
 
-A high-performance Android application implementing Retrieval Augmented Generation (RAG) using on-device AI models powered by Qualcomm's Neural Processing SDK. The app enables intelligent document Q&A without requiring cloud connectivity, leveraging Qualcomm's Hexagon Tensor Processor (HTP) for efficient inference.
+## Introduction
+
+This Android application implements a complete Retrieval Augmented Generation (RAG) system that runs entirely on-device using Qualcomm Snapdragon processors. The application monitors a selected folder and automatically processes documents (PDF, DOCX) as they are added or modified. Users can then ask questions about their documents through a conversational chat interface.
+
+### What is RAG?
+
+Retrieval Augmented Generation is an AI technique that combines:
+1. **Information Retrieval**: Searching for relevant passages from a knowledge base
+2. **Language Generation**: Using those passages as context for an LLM to generate responses
+
+This approach allows language models to answer questions about specific content without requiring fine-tuning on that content.
+
+### What Does "On-Device" Mean?
+
+All AI processing happens locally on the Android device:
+- Document processing and embedding generation
+- Vector similarity search
+- LLM inference for response generation
+
+No internet connection or cloud API is required after the initial model download. Documents and queries remain private to the device.
+
+### How It Works
+
+1. **Select Folder**: Choose a folder containing your documents
+2. **Automatic Processing**: The app monitors the folder and automatically processes any PDF or DOCX files
+3. **Background Sync**: Documents are chunked, embedded, and indexed in the background as they're added or modified
+4. **Ask Questions**: Type questions about your documents in the chat interface
+5. **Get Answers**: The system retrieves relevant context and generates informed responses
+
+The folder monitoring runs continuously in the background, so you don't need to manually upload files—just add documents to your watched folder and they're automatically processed.
+
+### Technical Implementation
+
+The application uses:
+- **LLM**: Qualcomm Genie (via Qualcomm AI Hub SDK)
+- **Embeddings**: all-MiniLM-L6-V2 sentence transformer (ONNX format)
+- **Vector Database**: ObjectBox with HNSW indexing for similarity search
+- **Hardware Acceleration**: Qualcomm Hexagon Tensor Processor (HTP) for AI inference
+- **Target Hardware**: Snapdragon 8 Gen 3 (SM8650)
+
+Built using Kotlin, Jetpack Compose, and follows MVVM architecture with Kotlin Coroutines for concurrency.
+
+---
+
+## Demo
+
+[Watch Demo Video](https://arizonastateu-my.sharepoint.com/:v:/g/personal/bsahni_sundevils_asu_edu/Edme73KiQBFKi4IfY2v2tCYBjQanLpcS6Isiw0Ew8uATkw?e=AEcBHI)
+
+*The video demonstrates automatic folder monitoring, document processing, and conversational Q&A with on-device RAG.*
+
+---
 
 ## Table of Contents
 
@@ -24,22 +74,13 @@ A high-performance Android application implementing Retrieval Augmented Generati
 
 ## Overview
 
-This application demonstrates a complete RAG system running entirely on-device using Qualcomm Snapdragon processors. It combines:
+The system combines the following components:
 
 - **On-device LLM**: Qualcomm Genie for text generation
 - **Embedding Model**: all-MiniLM-L6-V2 (ONNX) for semantic search
 - **Vector Database**: ObjectBox with HNSW indexing
 - **Document Processing**: PDF and DOCX support with incremental updates
 - **Folder Monitoring**: Automatic document sync with background service
-
-### What is RAG?
-
-Retrieval Augmented Generation enhances language model responses by:
-1. Retrieving relevant context from a knowledge base
-2. Augmenting the user query with retrieved information
-3. Generating informed responses based on the enriched context
-
-This approach enables the LLM to answer questions about specific documents without requiring fine-tuning.
 
 ---
 
