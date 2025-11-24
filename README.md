@@ -198,7 +198,7 @@ The system combines the following components:
 ### Data
 - **Database**: ObjectBox (NoSQL with vector support)
 - **Indexing**: HNSW for vector similarity search
-- **Document Parsing**: Apache POI (DOCX), PDFBox (PDF)
+- **Document Parsing**: Apache POI (DOCX), iTextPDF (PDF)
 
 ### Services
 - **Background**: Foreground Service for document sync
@@ -209,21 +209,24 @@ The system combines the following components:
 
 ## System Requirements
 
-### Minimum Requirements
-- **Android Version**: Android 11+ (API 30+)
-- **Processor**: Qualcomm Snapdragon 8 Gen 3 (SM8650)
-- **RAM**: 8GB minimum (12GB recommended)
-- **Storage**: 5GB free space for models
-- **Display**: 1080p minimum
+### Build Configuration
+- **compileSdk**: 34
+- **targetSdk**: 34
+- **minSdk**: 31
+- **Java**: 17 (sourceCompatibility & targetCompatibility)
+- **CMake**: 3.22.1
+- **ABI**: arm64-v8a
 
-### Supported SoCs
-- **SM8650** (Snapdragon 8 Gen 3)
+### Target Hardware
+- **SoC**: Snapdragon 8 Gen 3 (SM8650)
+- **DSP Architecture**: v75
+- **Tested On**: Android 16
 
 ### Model Files Required
-- `llm/` - Genie LLM model files (QNN format)
-- `all-MiniLM-L6-V2.onnx` - Sentence transformer model
-- `tokenizer.json` - BERT tokenizer
-- `qualcomm-snapdragon-8-gen3.json` - HTP configuration for Snapdragon 8 Gen 3
+- `models/llm/` - Genie LLM model files (4 weight sharing .bin files + configs)
+- `all-MiniLM-L6-V2.onnx` - Sentence transformer model (384-dim embeddings)
+- `tokenizer.json` - BERT tokenizer for embeddings
+- `htp_config/qualcomm-snapdragon-8-gen3.json` - HTP device configuration
 
 ---
 
@@ -263,6 +266,7 @@ app/src/main/java/bisman/thesis/qualcomm/
 │
 ├── Services
 │   ├── DocumentSyncService.kt         # Background sync service
+│   ├── DocumentObserverService.kt     # File observer service
 │   └── BootReceiver.kt                # Auto-start on boot
 │
 ├── Utilities
@@ -272,9 +276,16 @@ app/src/main/java/bisman/thesis/qualcomm/
 ├── Dependency Injection
 │   └── di/AppModule.kt                # Koin module
 │
-└── Application
-    ├── ChatApplication.kt             # App class
-    └── MainComposeActivity.kt         # Entry point
+├── Application
+│   ├── ChatApplication.kt             # App class
+│   └── MainComposeActivity.kt         # Compose entry point
+│
+└── Legacy Java Classes
+    ├── MainActivity.java              # Main launcher activity
+    ├── Conversation.java              # Legacy chat activity
+    ├── ChatMessage.java               # Message data class
+    ├── MessageSender.java             # Message handler
+    └── Message_RecyclerViewAdapter.java  # RecyclerView adapter
 ```
 
 ---
@@ -292,7 +303,7 @@ app/src/main/java/bisman/thesis/qualcomm/
 - Stream LLM responses token-by-token
 - Track performance metrics (RAG time, TTFT, tokens/sec)
 
-**Code Reference**: `ui/screens/chat/ChatViewModel.kt:137-272`
+**Code Reference**: `ui/screens/chat/ChatViewModel.kt`
 
 ### 2. DocsViewModel
 
@@ -313,7 +324,7 @@ Document Upload → Text Extraction → Chunking → Embedding → Database Stor
                             (500 char chunks, 50 char overlap)
 ```
 
-**Code Reference**: `ui/screens/docs/DocsViewModel.kt:134-198`
+**Code Reference**: `ui/screens/docs/DocsViewModel.kt`
 
 ### 3. SentenceEmbeddingProvider
 
@@ -334,7 +345,7 @@ val embedding = sentenceEncoder.encodeText("Your text here")
 sentenceEncoder.release()  // Frees DSP/NPU resources
 ```
 
-**Code Reference**: `domain/embeddings/SentenceEmbeddingProvider.kt:48-97`
+**Code Reference**: `domain/embeddings/SentenceEmbeddingProvider.kt`
 
 ### 4. ChunksDB
 
@@ -356,7 +367,7 @@ val results = chunksDB.getSimilarChunks(
 )
 ```
 
-**Code Reference**: `data/ChunksDB.kt:74-108`
+**Code Reference**: `data/ChunksDB.kt`
 
 ### 5. DocumentSyncService
 
@@ -374,7 +385,7 @@ val results = chunksDB.getSimilarChunks(
 3. **Smart Processing**: Compares paragraph hashes to find changes
 4. **Resource Efficient**: Releases models after batch processing
 
-**Code Reference**: `services/DocumentSyncService.kt:31-595`
+**Code Reference**: `services/DocumentSyncService.kt`
 
 ### 6. ContentHasher
 
@@ -390,7 +401,7 @@ New Document → Hash Paragraphs → Compare with Old Hashes
               → Re-process only affected paragraphs
 ```
 
-**Code Reference**: `utils/ContentHasher.kt:78-120`
+**Code Reference**: `utils/ContentHasher.kt`
 
 ---
 
@@ -459,9 +470,9 @@ User Query
 
 | Format | Reader Class | Library | Features |
 |--------|-------------|---------|----------|
-| PDF | `PDFReader` | Apache PDFBox | Text extraction, multi-page |
-| DOCX | `DOCXReader` | Apache POI | Text extraction, formatting ignored |
-| DOC | `DOCXReader` | Apache POI | Legacy format support |
+| PDF | `PDFReader` | iTextPDF 5.5.13.3 | Text extraction, multi-page |
+| DOCX | `DOCXReader` | Apache POI 5.2.5 | Text extraction, formatting ignored |
+| DOC | `DOCXReader` | Apache POI 5.2.5 | Legacy format support |
 
 ### Chunking Strategy
 
@@ -493,7 +504,7 @@ Output Chunks:
 [950-1200] → Chunk 3 (para 1)
 ```
 
-**Code Reference**: `domain/splitters/WhiteSpaceSplitter.kt:26-89`
+**Code Reference**: `domain/splitters/WhiteSpaceSplitter.kt`
 
 ### Incremental Update Logic
 
@@ -514,7 +525,7 @@ Output Chunks:
    - Batch insert new chunks
 7. **Update document**: Store new text and hashes
 
-**Code Reference**: `services/DocumentSyncService.kt:446-552`
+**Code Reference**: `services/DocumentSyncService.kt`
 
 ---
 
@@ -610,7 +621,7 @@ val idsToRemove = chunksBox
 chunksBox.removeByIds(idsToRemove)
 ```
 
-**Code Reference**: `data/DataModels.kt:8-73`
+**Code Reference**: `data/DataModels.kt`
 
 ---
 
@@ -713,7 +724,10 @@ private val chunksBox: Box<Chunk> by lazy {
 
 1. **Android Studio**: Hedgehog (2023.1.1) or newer
 2. **Qualcomm Device**: Snapdragon 8 Gen 3 (SM8650)
-3. **Model Files**: Download from Qualcomm AI Hub
+3. **QAIRT SDK**: Download Qualcomm AI Runtime SDK (version 2.29.0 or compatible)
+4. **Java**: JDK 17 required
+5. **CMake**: Version 3.22.1
+6. **Model Files**: Download from Qualcomm AI Hub
 
 ### Step 1: Clone Repository
 
@@ -722,21 +736,55 @@ git clone <repository-url>
 cd QualcommThesisApp
 ```
 
-### Step 2: Configure Model Files
+### Step 2: Configure QAIRT SDK Path
+
+Open `app/build.gradle.kts` and update the QAIRT SDK path to your local installation:
+
+```kotlin
+// Path to local QAIRT SDK (line 13)
+val qnnSDKLocalPath = "/path/to/your/qairt/2.29.0.241129"
+```
+
+The SDK should contain the following structure:
+```
+qairt/
+├── lib/
+│   ├── aarch64-android/
+│   │   ├── libGenie.so
+│   │   ├── libQnnHtp.so
+│   │   ├── libQnnHtpPrepare.so
+│   │   ├── libQnnSystem.so
+│   │   └── libQnnSaver.so
+│   └── hexagon-v75/
+│       └── unsigned/
+│           └── libQnnHtpV75Skel.so
+└── include/
+    └── Genie/
+        └── (header files)
+```
+
+### Step 3: Configure Model Files
 
 Place the following files in `app/src/main/assets/`:
 
 ```
 assets/
-├── llm/
-│   ├── genie.bin                    # LLM model
-│   └── (additional QNN model files)
-├── all-MiniLM-L6-V2.onnx           # Embedding model
-├── tokenizer.json                   # BERT tokenizer
-└── qualcomm-snapdragon-8-gen3.json  # HTP configuration for 8 Gen 3
+├── models/
+│   └── llm/
+│       ├── genie_config.json                           # Genie configuration
+│       ├── tokenizer.json                              # LLM tokenizer
+│       ├── htp_backend_ext_config.json                 # HTP backend config
+│       ├── weight_sharing_model_1_of_4.serialized.bin  # Model weights (part 1)
+│       ├── weight_sharing_model_2_of_4.serialized.bin  # Model weights (part 2)
+│       ├── weight_sharing_model_3_of_4.serialized.bin  # Model weights (part 3)
+│       └── weight_sharing_model_4_of_4.serialized.bin  # Model weights (part 4)
+├── htp_config/
+│   └── qualcomm-snapdragon-8-gen3.json                 # HTP device configuration
+├── all-MiniLM-L6-V2.onnx                               # Embedding model
+└── tokenizer.json                                       # BERT tokenizer for embeddings
 ```
 
-### Step 3: Configure Gradle
+### Step 4: Configure Gradle
 
 Update `local.properties`:
 ```properties
@@ -744,7 +792,7 @@ sdk.dir=/path/to/Android/sdk
 ndk.dir=/path/to/Android/ndk
 ```
 
-### Step 4: Build & Run
+### Step 5: Build & Run
 
 ```bash
 # Clean build
@@ -760,7 +808,7 @@ ndk.dir=/path/to/Android/ndk
 adb shell am start -n bisman.thesis.qualcomm/.MainActivity
 ```
 
-### Step 5: First Launch Setup
+### Step 6: First Launch Setup
 
 1. Grant storage permissions when prompted
 2. Navigate to "Documents" tab
@@ -894,6 +942,41 @@ fun startSyncService(context: Context)
  * @param context Android context
  */
 fun stopSyncService(context: Context)
+
+/**
+ * Checks if sync service is currently running.
+ *
+ * @param context Android context
+ * @return true if service is running
+ */
+fun isSyncServiceRunning(context: Context): Boolean
+
+/**
+ * Downloads and adds document from URL.
+ *
+ * @param url Document URL
+ * @param context Android context
+ * @param onDownloadComplete Callback with success status
+ */
+suspend fun addDocumentFromUrl(
+    url: String,
+    context: Context,
+    onDownloadComplete: (Boolean) -> Unit
+)
+
+/**
+ * Removes document and all its chunks.
+ *
+ * @param docId Document ID to remove
+ */
+fun removeDocument(docId: Long)
+
+/**
+ * Removes document by file path.
+ *
+ * @param filePath File path of document to remove
+ */
+fun removeDocumentByFilePath(filePath: String)
 ```
 
 **State Flows**:
@@ -1078,7 +1161,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Qualcomm**: For AI Hub SDK and neural processing support
 - **ObjectBox**: For high-performance vector database
 - **Hugging Face**: For all-MiniLM-L6-V2 model
-- **Apache**: For POI (DOCX) and PDFBox (PDF) libraries
+- **Apache**: For POI (DOCX) library
+- **iText**: For iTextPDF (PDF) library
 
 ---
 
